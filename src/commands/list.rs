@@ -145,13 +145,15 @@ impl ListCommand {
             println!();
         }
         
-        // MultiSelect用のオプション作成（カラー付き）
+        // MultiSelect用のオプション作成（詳細情報付き）
         let options: Vec<String> = processes.iter().map(|p| {
-            format!("{} ({}) - {} ({})", 
+            format!("{} ({}) - {} ({}) - {} | {}", 
                 p.port.to_string().white(), 
                 p.protocol.to_uppercase().green(), 
                 p.name.yellow(),
-                p.pid.to_string().blue()
+                p.pid.to_string().blue(),
+                p.path.truncate_with_ellipsis(25).magenta(),
+                p.command.truncate_with_ellipsis(40).dimmed()
             )
         }).collect();
         
