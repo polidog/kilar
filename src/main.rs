@@ -30,11 +30,13 @@ async fn run() -> Result<()> {
             
             KillCommand::execute(port, &protocol, force, cli.quiet, cli.json).await?;
         }
-        Commands::List { ports, filter, sort, protocol, kill } => {
+        Commands::List { ports, filter, sort, protocol, view_only } => {
             validate_protocol(&protocol)?;
             validate_sort_option(&sort)?;
             
-            ListCommand::execute(ports, filter, &sort, &protocol, kill, cli.quiet, cli.json).await?;
+            // デフォルトはkill機能付き、--view-onlyで表示のみ
+            let kill_mode = !view_only;
+            ListCommand::execute(ports, filter, &sort, &protocol, kill_mode, cli.quiet, cli.json).await?;
         }
     }
 
