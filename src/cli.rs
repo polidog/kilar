@@ -14,9 +14,6 @@ pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
 
-    #[arg(short, long, global = true, help = "詳細出力を有効にする")]
-    pub verbose: bool,
-
     #[arg(short, long, global = true, help = "出力を抑制する")]
     pub quiet: bool,
 

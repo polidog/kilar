@@ -11,7 +11,6 @@ impl ListCommand {
         sort: &str,
         protocol: &str,
         kill: bool,
-        verbose: bool,
         quiet: bool,
         json: bool,
     ) -> Result<()> {
@@ -53,7 +52,7 @@ impl ListCommand {
             }
         } else {
             if !quiet && !kill {
-                Self::print_table(&processes, verbose);
+                Self::print_table(&processes, true);
             }
             
             // 対話的kill機能

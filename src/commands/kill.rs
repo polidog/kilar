@@ -9,7 +9,6 @@ impl KillCommand {
         port: u16,
         protocol: &str,
         force: bool,
-        _verbose: bool,
         quiet: bool,
         json: bool,
     ) -> Result<()> {
