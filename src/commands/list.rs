@@ -137,10 +137,10 @@ impl ListCommand {
     }
     
     async fn interactive_kill(processes: Vec<crate::port::ProcessInfo>, quiet: bool) -> Result<()> {
-        // まず詳細テーブルを表示（通常のlistと同じ）
+        // killモードでは重要な操作のため、常に詳細テーブルを表示（--quietに関係なく）
+        Self::print_table(&processes, true);
+        println!();
         if !quiet {
-            Self::print_table(&processes, true);
-            println!();
             println!("{}", "使用中のポートから終了するプロセスを選択してください:".bold());
             println!();
         }
