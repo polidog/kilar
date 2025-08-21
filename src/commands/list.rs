@@ -137,7 +137,10 @@ impl ListCommand {
     }
     
     async fn interactive_kill(processes: Vec<crate::port::ProcessInfo>, quiet: bool) -> Result<()> {
+        // まず詳細テーブルを表示（通常のlistと同じ）
         if !quiet {
+            Self::print_table(&processes, true);
+            println!();
             println!("{}", "使用中のポートから終了するプロセスを選択してください:".bold());
             println!();
         }
@@ -152,10 +155,18 @@ impl ListCommand {
             )
         }).collect();
         
-        let selections = MultiSelect::new()
-            .with_prompt("プロセスを選択")
+        let selections = match MultiSelect::new()
+            .with_prompt("プロセスを選択 (Space: 選択, Enter: 確定, Esc/q: 終了)")
             .items(&options)
-            .interact()?;
+            .interact_opt()? {
+            Some(selected) => selected,
+            None => {
+                if !quiet {
+                    println!("{} 操作がキャンセルされました", "×".yellow());
+                }
+                return Ok(());
+            }
+        };
         
         if selections.is_empty() {
             if !quiet {
