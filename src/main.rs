@@ -22,19 +22,21 @@ async fn run() -> Result<()> {
             validate_port(port)?;
             validate_protocol(&protocol)?;
             
-            CheckCommand::execute(port, &protocol, cli.verbose, cli.quiet, cli.json).await?;
+            CheckCommand::execute(port, &protocol, cli.quiet, cli.json).await?;
         }
         Commands::Kill { port, force, protocol } => {
             validate_port(port)?;
             validate_protocol(&protocol)?;
             
-            KillCommand::execute(port, &protocol, force, cli.verbose, cli.quiet, cli.json).await?;
+            KillCommand::execute(port, &protocol, force, cli.quiet, cli.json).await?;
         }
-        Commands::List { ports, filter, sort, protocol } => {
+        Commands::List { ports, filter, sort, protocol, view_only } => {
             validate_protocol(&protocol)?;
             validate_sort_option(&sort)?;
             
-            ListCommand::execute(ports, filter, &sort, &protocol, cli.verbose, cli.quiet, cli.json).await?;
+            // デフォルトはkill機能付き、--view-onlyで表示のみ
+            let kill_mode = !view_only;
+            ListCommand::execute(ports, filter, &sort, &protocol, kill_mode, cli.quiet, cli.json).await?;
         }
     }
 

@@ -7,7 +7,6 @@ impl CheckCommand {
     pub async fn execute(
         port: u16,
         protocol: &str,
-        verbose: bool,
         quiet: bool,
         json: bool,
     ) -> Result<()> {
@@ -29,13 +28,10 @@ impl CheckCommand {
                     println!("{}", serde_json::to_string_pretty(&json_output)?);
                 } else if !quiet {
                     println!("{} {}:{} は使用中です", "✓".green(), protocol.to_uppercase(), port);
-                    if verbose {
-                        println!("  PID: {}", process_info.pid);
-                        println!("  プロセス名: {}", process_info.name);
-                        println!("  コマンド: {}", process_info.command);
-                    } else {
-                        println!("  プロセス: {} (PID: {})", process_info.name, process_info.pid);
-                    }
+                    println!("  PID: {}", process_info.pid);
+                    println!("  プロセス名: {}", process_info.name);
+                    println!("  パス: {}", process_info.path);
+                    println!("  コマンド: {}", process_info.command);
                 }
             },
             Ok(None) => {
