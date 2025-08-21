@@ -59,19 +59,28 @@ impl PortManager {
     
     #[cfg(not(target_os = "windows"))]
     async fn list_processes_unix(&self, protocol: &str) -> Result<Vec<ProcessInfo>> {
-        let protocol_flag = match protocol.to_lowercase().as_str() {
-            "tcp" => "-iTCP",
-            "udp" => "-iUDP",
-            "all" => "-i",
-            _ => "-iTCP",
-        };
+        let mut cmd = TokioCommand::new("lsof");
+        cmd.arg("-n")  // 数値表示（ホスト名解決なし）
+           .arg("-P"); // ポート番号を数値表示
         
-        let output = TokioCommand::new("lsof")
-            .arg("-n")  // 数値表示（ホスト名解決なし）
-            .arg("-P")  // ポート番号を数値表示
-            .arg(protocol_flag)
-            .arg("-sTCP:LISTEN") // リスニング状態のみ（TCP）
-            .output()
+        match protocol.to_lowercase().as_str() {
+            "tcp" => {
+                cmd.arg("-iTCP")
+                   .arg("-sTCP:LISTEN"); // リスニング状態のみ（TCP）
+            },
+            "udp" => {
+                cmd.arg("-iUDP");
+            },
+            "all" => {
+                cmd.arg("-i");
+            },
+            _ => {
+                cmd.arg("-iTCP")
+                   .arg("-sTCP:LISTEN"); // デフォルトはTCP
+            }
+        }
+        
+        let output = cmd.output()
             .await
             .map_err(|e| crate::Error::CommandFailed(format!("lsof command failed: {}", e)))?;
         
@@ -125,7 +134,15 @@ impl PortManager {
                 "*".to_string()
             };
             
-            let protocol = if type_field.contains("TCP") { "tcp" } else { "udp" }.to_string();
+            // NAME列（node）からプロトコルを判定
+            let protocol = if node.contains("TCP") { 
+                "tcp" 
+            } else if node.contains("UDP") { 
+                "udp" 
+            } else {
+                // フォールバック：リクエストされたプロトコルを使用
+                _protocol
+            }.to_string();
             
             // プロセス情報を取得（完全なコマンドライン）
             let full_command = match self.get_process_command(pid).await {
