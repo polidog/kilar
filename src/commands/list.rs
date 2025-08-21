@@ -1,5 +1,6 @@
-use crate::{port::PortManager, Result};
+use crate::{port::PortManager, process::ProcessManager, Result};
 use colored::Colorize;
+use dialoguer::{MultiSelect, Confirm};
 
 pub struct ListCommand;
 
@@ -9,6 +10,7 @@ impl ListCommand {
         filter: Option<String>,
         sort: &str,
         protocol: &str,
+        kill: bool,
         verbose: bool,
         quiet: bool,
         json: bool,
@@ -50,8 +52,20 @@ impl ListCommand {
                 println!("{} 使用中のポートが見つかりませんでした", "○".blue());
             }
         } else {
-            if !quiet {
+            if !quiet && !kill {
                 Self::print_table(&processes, verbose);
+            }
+            
+            // 対話的kill機能
+            if kill {
+                if processes.is_empty() {
+                    if !quiet {
+                        println!("{} 終了可能なプロセスが見つかりませんでした", "○".blue());
+                    }
+                    return Ok(());
+                }
+                
+                Self::interactive_kill(processes, quiet).await?;
             }
         }
         
@@ -119,6 +133,123 @@ impl ListCommand {
         
         println!();
         println!("合計: {} プロセス", processes.len().to_string().bold());
+    }
+    
+    async fn interactive_kill(processes: Vec<crate::port::ProcessInfo>, quiet: bool) -> Result<()> {
+        if !quiet {
+            println!("{}", "使用中のポートから終了するプロセスを選択してください:".bold());
+            println!();
+        }
+        
+        // MultiSelect用のオプション作成
+        let options: Vec<String> = processes.iter().map(|p| {
+            format!("{} ({}) - {} ({})", 
+                p.port, 
+                p.protocol.to_uppercase(), 
+                p.name,
+                p.pid
+            )
+        }).collect();
+        
+        let selections = MultiSelect::new()
+            .with_prompt("プロセスを選択")
+            .items(&options)
+            .interact()?;
+        
+        if selections.is_empty() {
+            if !quiet {
+                println!("{} プロセスが選択されませんでした", "×".yellow());
+            }
+            return Ok(());
+        }
+        
+        // 選択されたプロセス一覧を表示
+        if !quiet {
+            println!();
+            println!("{}", "選択されたプロセス:".bold());
+            for &idx in &selections {
+                let process = &processes[idx];
+                println!("• {} (PID: {}) - ポート {}", 
+                    process.name, process.pid, process.port);
+            }
+            println!();
+        }
+        
+        // 確認プロンプト
+        let confirmed = if selections.len() == 1 {
+            Confirm::new()
+                .with_prompt(format!("1個のプロセスを終了しますか？"))
+                .default(false)
+                .interact()?
+        } else {
+            Confirm::new()
+                .with_prompt(format!("{}個のプロセスを終了しますか？", selections.len()))
+                .default(false)
+                .interact()?
+        };
+        
+        if !confirmed {
+            if !quiet {
+                println!("{} 操作がキャンセルされました", "×".yellow());
+            }
+            return Ok(());
+        }
+        
+        // プロセス終了実行
+        Self::kill_selected_processes(processes, selections, quiet).await?;
+        
+        Ok(())
+    }
+    
+    async fn kill_selected_processes(
+        processes: Vec<crate::port::ProcessInfo>, 
+        selections: Vec<usize>,
+        quiet: bool
+    ) -> Result<()> {
+        let process_manager = ProcessManager::new();
+        let mut success_count = 0;
+        let mut errors = Vec::new();
+        
+        for &idx in &selections {
+            let process = &processes[idx];
+            
+            match process_manager.kill_process(process.pid).await {
+                Ok(()) => {
+                    success_count += 1;
+                    if !quiet {
+                        println!("{} {} (PID: {}) を終了しました", 
+                            "✓".green(), process.name, process.pid);
+                    }
+                },
+                Err(e) => {
+                    if !quiet {
+                        println!("{} {} (PID: {}) の終了に失敗: {}", 
+                            "×".red(), process.name, process.pid, e);
+                    }
+                    errors.push((process, e));
+                }
+            }
+        }
+        
+        // 結果サマリー
+        if !quiet && selections.len() > 1 {
+            println!();
+            if success_count > 0 {
+                println!("{} {}個のプロセスを正常に終了しました", 
+                    "✓".green(), success_count);
+            }
+            if !errors.is_empty() {
+                println!("{} {}個のプロセスの終了に失敗しました", 
+                    "×".red(), errors.len());
+            }
+        }
+        
+        // エラーがあった場合は最初のエラーを返す
+        if let Some((_, first_error)) = errors.first() {
+            return Err(first_error.clone());
+        }
+        
+        Ok(())
     }
 }
 

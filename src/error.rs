@@ -1,8 +1,8 @@
 use std::fmt;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Error {
-    IoError(std::io::Error),
+    IoError(String),
     ParseError(String),
     PortNotFound(u16),
     PermissionDenied(String),
@@ -15,7 +15,7 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Error::IoError(e) => write!(f, "I/O エラー: {}", e),
+            Error::IoError(msg) => write!(f, "I/O エラー: {}", msg),
             Error::ParseError(msg) => write!(f, "パースエラー: {}", msg),
             Error::PortNotFound(port) => write!(f, "ポート {} は使用されていません", port),
             Error::PermissionDenied(msg) => write!(f, "権限エラー: {}", msg),
@@ -31,7 +31,7 @@ impl std::error::Error for Error {}
 
 impl From<std::io::Error> for Error {
     fn from(e: std::io::Error) -> Self {
-        Error::IoError(e)
+        Error::IoError(e.to_string())
     }
 }
 

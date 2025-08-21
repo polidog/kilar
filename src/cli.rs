@@ -57,6 +57,9 @@ pub enum Commands {
         
         #[arg(short, long, default_value = "tcp", help = "プロトコル (tcp/udp/all)")]
         protocol: String,
+        
+        #[arg(short, long, help = "対話的にプロセスを選択して終了する")]
+        kill: bool,
     },
 }
 

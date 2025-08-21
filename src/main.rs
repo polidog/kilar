@@ -30,11 +30,11 @@ async fn run() -> Result<()> {
             
             KillCommand::execute(port, &protocol, force, cli.verbose, cli.quiet, cli.json).await?;
         }
-        Commands::List { ports, filter, sort, protocol } => {
+        Commands::List { ports, filter, sort, protocol, kill } => {
             validate_protocol(&protocol)?;
             validate_sort_option(&sort)?;
             
-            ListCommand::execute(ports, filter, &sort, &protocol, cli.verbose, cli.quiet, cli.json).await?;
+            ListCommand::execute(ports, filter, &sort, &protocol, kill, cli.verbose, cli.quiet, cli.json).await?;
         }
     }
 
