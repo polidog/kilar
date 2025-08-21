@@ -5,19 +5,22 @@ use clap::{Parser, Subcommand};
     name = "kilar",
     about = "ポートプロセス管理CLIツール",
     version,
-    author
+    author,
+    args_conflicts_with_subcommands = true,
+    subcommand_help_heading = "Commands",
+    help_template = "{before-help}{name} {version}\n{author-with-newline}{about-with-newline}\n{usage-heading} {usage}\n\n{all-args}{after-help}"
 )]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
 
-    #[arg(short, long, help = "詳細出力を有効にする")]
+    #[arg(short, long, global = true, help = "詳細出力を有効にする")]
     pub verbose: bool,
 
-    #[arg(short, long, help = "出力を抑制する")]
+    #[arg(short, long, global = true, help = "出力を抑制する")]
     pub quiet: bool,
 
-    #[arg(short, long, help = "JSON形式で出力する")]
+    #[arg(short, long, global = true, help = "JSON形式で出力する")]
     pub json: bool,
 }
 
