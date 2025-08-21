@@ -94,21 +94,23 @@ impl ListCommand {
         println!();
         
         if verbose {
-            println!("{:<8} {:<12} {:<20} {:<15} {}", 
+            println!("{:<8} {:<12} {:<20} {:<15} {:<40} {}", 
                 "PORT".cyan().bold(), 
                 "PROTOCOL".cyan().bold(), 
                 "PROCESS".cyan().bold(), 
                 "PID".cyan().bold(),
+                "PATH".cyan().bold(),
                 "COMMAND".cyan().bold()
             );
-            println!("{}", "-".repeat(80));
+            println!("{}", "-".repeat(120));
             
             for process in processes {
-                println!("{:<8} {:<12} {:<20} {:<15} {}", 
+                println!("{:<8} {:<12} {:<20} {:<15} {:<40} {}", 
                     process.port.to_string().white(),
                     process.protocol.to_uppercase().green(),
                     process.name.yellow(),
                     process.pid.to_string().blue(),
+                    process.path.truncate_with_ellipsis(38).magenta(),
                     process.command.truncate_with_ellipsis(30).dimmed()
                 );
             }
@@ -141,13 +143,13 @@ impl ListCommand {
             println!();
         }
         
-        // MultiSelect用のオプション作成
+        // MultiSelect用のオプション作成（カラー付き）
         let options: Vec<String> = processes.iter().map(|p| {
             format!("{} ({}) - {} ({})", 
-                p.port, 
-                p.protocol.to_uppercase(), 
-                p.name,
-                p.pid
+                p.port.to_string().white(), 
+                p.protocol.to_uppercase().green(), 
+                p.name.yellow(),
+                p.pid.to_string().blue()
             )
         }).collect();
         
