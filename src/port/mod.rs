@@ -24,61 +24,11 @@ impl PortManager {
         Ok(processes.into_iter().find(|p| p.port == port))
     }
 
-    /// Check if a system command is available
-    #[allow(dead_code)] // Only used on Windows platforms
-    async fn is_command_available(&self, command: &str) -> bool {
-        match TokioCommand::new(command).arg("--help").output().await {
-            Ok(output) => output.status.success(),
-            Err(_) => false,
-        }
-    }
 
-    #[cfg(target_os = "windows")]
-    pub async fn list_processes(&self, protocol: &str) -> Result<Vec<ProcessInfo>> {
-        // Check if netstat is available first
-        if !self.is_command_available("netstat").await {
-            return Err(crate::Error::CommandFailed(
-                "netstat command not available. This may occur in restricted CI environments or containers.".to_string()
-            ));
-        }
-
-        let protocol_flag = match protocol.to_lowercase().as_str() {
-            "tcp" => "TCP",
-            "udp" => "UDP",
-            "all" => "",
-            _ => "TCP",
-        };
-
-        let mut args = vec!["-ano"];
-        if !protocol_flag.is_empty() {
-            args.push("-p");
-            args.push(protocol_flag);
-        }
-
-        let output = TokioCommand::new("netstat")
-            .args(&args)
-            .output()
-            .await
-            .map_err(|e| crate::Error::CommandFailed(format!("netstat command failed: {}. This may indicate restricted CI environment permissions.", e)))?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(crate::Error::CommandFailed(format!(
-                "netstat failed: {}. This may occur in CI environments with restricted process visibility.",
-                stderr
-            )));
-        }
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        self.parse_netstat_output(&stdout, protocol).await
-    }
-
-    #[cfg(not(target_os = "windows"))]
     pub async fn list_processes(&self, protocol: &str) -> Result<Vec<ProcessInfo>> {
         self.list_processes_unix(protocol).await
     }
 
-    #[cfg(not(target_os = "windows"))]
     async fn list_processes_unix(&self, protocol: &str) -> Result<Vec<ProcessInfo>> {
         // Try lsof first, fallback to ss, then netstat
         if let Ok(result) = self.try_lsof(protocol).await {
@@ -92,7 +42,6 @@ impl PortManager {
         self.try_netstat_unix(protocol).await
     }
 
-    #[cfg(not(target_os = "windows"))]
     async fn try_lsof(&self, protocol: &str) -> Result<Vec<ProcessInfo>> {
         let mut cmd = TokioCommand::new("lsof");
         cmd.arg("-n") // 数値表示（ホスト名解決なし）
@@ -132,7 +81,6 @@ impl PortManager {
         self.parse_lsof_output(&stdout, protocol).await
     }
 
-    #[cfg(not(target_os = "windows"))]
     async fn try_ss(&self, protocol: &str) -> Result<Vec<ProcessInfo>> {
         let mut cmd = TokioCommand::new("ss");
         cmd.arg("-n") // 数値表示
@@ -170,7 +118,6 @@ impl PortManager {
         self.parse_ss_output(&stdout, protocol).await
     }
 
-    #[cfg(not(target_os = "windows"))]
     async fn try_netstat_unix(&self, protocol: &str) -> Result<Vec<ProcessInfo>> {
         let mut cmd = TokioCommand::new("netstat");
         cmd.arg("-n") // 数値表示
@@ -290,89 +237,6 @@ impl PortManager {
         Ok(processes)
     }
 
-    #[cfg(target_os = "windows")]
-    async fn parse_netstat_output(
-        &self,
-        output: &str,
-        _protocol: &str,
-    ) -> Result<Vec<ProcessInfo>> {
-        let mut processes = Vec::new();
-
-        for line in output.lines() {
-            let fields: Vec<&str> = line.split_whitespace().collect();
-            if fields.len() < 4 {
-                continue;
-            }
-
-            // Skip header lines and empty lines
-            if !fields[0].to_uppercase().starts_with("TCP")
-                && !fields[0].to_uppercase().starts_with("UDP")
-            {
-                continue;
-            }
-
-            let protocol = fields[0].to_lowercase();
-            let local_address = fields[1];
-
-            // TCPとUDPで異なるフィールド構造に対応
-            let (state, pid_str) = if protocol.starts_with("tcp") {
-                // TCP: Proto Local Foreign State PID
-                if fields.len() < 5 {
-                    continue;
-                }
-                (fields[3], fields[4])
-            } else {
-                // UDP: Proto Local Foreign PID (no state)
-                if fields.len() < 4 {
-                    continue;
-                }
-                ("LISTENING", fields[3]) // UDPは常にリスニング扱い
-            };
-
-            // リスニング状態のみ処理
-            if protocol.starts_with("tcp") && state != "LISTENING" {
-                continue;
-            }
-
-            let pid = match pid_str.parse::<u32>() {
-                Ok(pid) => pid,
-                Err(_) => continue,
-            };
-
-            // ポート番号を抽出
-            let port = if let Some(colon_pos) = local_address.rfind(':') {
-                match local_address[colon_pos + 1..].parse::<u16>() {
-                    Ok(port) => port,
-                    Err(_) => continue,
-                }
-            } else {
-                continue;
-            };
-
-            let address = if let Some(colon_pos) = local_address.rfind(':') {
-                local_address[..colon_pos].to_string()
-            } else {
-                "*".to_string()
-            };
-
-            // Windowsでプロセス情報を取得
-            let (name, command) = match self.get_process_info_windows(pid).await {
-                Ok((n, c)) => (n, c),
-                Err(_) => ("Unknown".to_string(), "Unknown".to_string()),
-            };
-
-            processes.push(ProcessInfo {
-                pid,
-                name,
-                command,
-                port,
-                protocol,
-                address,
-            });
-        }
-
-        Ok(processes)
-    }
 
     async fn parse_ss_output(&self, output: &str, _protocol: &str) -> Result<Vec<ProcessInfo>> {
         let mut processes = Vec::new();
@@ -520,29 +384,13 @@ impl PortManager {
         let parts: Vec<&str> = command_line.split_whitespace().collect();
         if let Some(first_part) = parts.first() {
             // パスから実行ファイル名だけを抽出
-            let name = if cfg!(target_os = "windows") {
-                // Windowsの場合、両方のセパレータを考慮
-                first_part
-                    .split(&['\\', '/'][..])
-                    .next_back()
-                    .unwrap_or(first_part)
-            } else {
-                // Unix系の場合
-                first_part.split('/').next_back().unwrap_or(first_part)
-            };
-
-            // Windows環境では.exeを削除
-            if cfg!(target_os = "windows") && name.to_lowercase().ends_with(".exe") {
-                name[..name.len() - 4].to_string()
-            } else {
-                name.to_string()
-            }
+            let name = first_part.split('/').next_back().unwrap_or(first_part);
+            name.to_string()
         } else {
             "Unknown".to_string()
         }
     }
 
-    #[cfg(not(target_os = "windows"))]
     async fn get_process_command(&self, pid: u32) -> Result<String> {
         let output = TokioCommand::new("ps")
             .arg("-p")
@@ -559,150 +407,7 @@ impl PortManager {
         }
     }
 
-    #[cfg(target_os = "windows")]
-    async fn get_process_command(&self, pid: u32) -> Result<String> {
-        // Windows version: delegate to get_process_command_wmic
-        self.get_process_command_wmic(pid).await
-    }
 
-    #[cfg(target_os = "windows")]
-    async fn get_process_info_windows(&self, pid: u32) -> Result<(String, String)> {
-        // Check if tasklist is available first
-        if !self.is_command_available("tasklist").await {
-            return Ok((
-                "Unknown".to_string(),
-                "Unknown (tasklist not available in CI)".to_string(),
-            ));
-        }
-
-        // tasklist.exe を使用してプロセス情報を取得
-        let output = TokioCommand::new("tasklist")
-            .arg("/FI")
-            .arg(&format!("PID eq {}", pid))
-            .arg("/FO")
-            .arg("CSV")
-            .arg("/NH") // ヘッダーなし
-            .output()
-            .await
-            .map_err(|e| crate::Error::CommandFailed(format!("tasklist command failed: {}. This may indicate restricted CI environment permissions.", e)))?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(crate::Error::CommandFailed(format!(
-                "tasklist failed: {}",
-                stderr
-            )));
-        }
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let lines: Vec<&str> = stdout.lines().collect();
-
-        if let Some(line) = lines.first() {
-            // CSV形式のパース: "Image Name","PID","Session Name","Session#","Mem Usage"
-            let fields: Vec<&str> = line.split(',').collect();
-            if fields.len() >= 2 {
-                let image_name = fields[0].trim_matches('"');
-                let name = image_name.to_string();
-
-                // 詳細なコマンド情報を取得するためにWMICを試行
-                match self.get_process_command_wmic(pid).await {
-                    Ok(command) => Ok((name, command)),
-                    Err(_) => Ok((name.clone(), name)), // フォールバック
-                }
-            } else {
-                Err(crate::Error::ProcessNotFound(pid))
-            }
-        } else {
-            Err(crate::Error::ProcessNotFound(pid))
-        }
-    }
-
-    #[cfg(target_os = "windows")]
-    async fn get_process_command_wmic(&self, pid: u32) -> Result<String> {
-        // Try PowerShell first (more reliable in modern Windows/CI), then fall back to wmic
-        if let Ok(result) = self.get_process_command_powershell(pid).await {
-            return Ok(result);
-        }
-
-        // Check if wmic is available (deprecated in newer Windows versions)
-        if !self.is_command_available("wmic").await {
-            return Err(crate::Error::CommandFailed(
-                "wmic command not available (deprecated in Windows 10/11). PowerShell alternative also failed.".to_string()
-            ));
-        }
-
-        let output = TokioCommand::new("wmic")
-            .arg("process")
-            .arg("where")
-            .arg(&format!("ProcessId={}", pid))
-            .arg("get")
-            .arg("CommandLine,ExecutablePath")
-            .arg("/format:csv")
-            .output()
-            .await
-            .map_err(|e| crate::Error::CommandFailed(format!("wmic command failed: {}. This may indicate wmic is deprecated or restricted in CI.", e)))?;
-
-        if !output.status.success() {
-            return Err(crate::Error::ProcessNotFound(pid));
-        }
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        // Skip the first two lines (empty line and header)
-        for line in stdout.lines().skip(2) {
-            if line.trim().is_empty() {
-                continue;
-            }
-            let fields: Vec<&str> = line.split(',').collect();
-            // Format: Node,CommandLine,ExecutablePath
-            if fields.len() >= 3 {
-                // fields[0] is the node name (computer name)
-                let command_line = fields[1].trim();
-                let executable_path = fields[2].trim();
-
-                if !command_line.is_empty() && command_line != "NULL" && command_line != "(null)" {
-                    return Ok(command_line.to_string());
-                } else if !executable_path.is_empty()
-                    && executable_path != "NULL"
-                    && executable_path != "(null)"
-                {
-                    return Ok(executable_path.to_string());
-                }
-            }
-        }
-
-        Err(crate::Error::ProcessNotFound(pid))
-    }
-
-    /// Modern PowerShell alternative to wmic for Windows process information
-    #[cfg(target_os = "windows")]
-    async fn get_process_command_powershell(&self, pid: u32) -> Result<String> {
-        let script = format!(
-            "Get-Process -Id {} | Select-Object -ExpandProperty ProcessName,Path,CommandLine 2>$null",
-            pid
-        );
-
-        let output = TokioCommand::new("powershell")
-            .arg("-Command")
-            .arg(&script)
-            .output()
-            .await
-            .map_err(|e| {
-                crate::Error::CommandFailed(format!("PowerShell command failed: {}", e))
-            })?;
-
-        if !output.status.success() {
-            return Err(crate::Error::ProcessNotFound(pid));
-        }
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let result = stdout.trim();
-
-        if result.is_empty() {
-            return Err(crate::Error::ProcessNotFound(pid));
-        }
-
-        Ok(result.to_string())
-    }
 }
 
 impl Default for PortManager {

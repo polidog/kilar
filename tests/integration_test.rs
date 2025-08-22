@@ -21,13 +21,11 @@ async fn test_check_command_with_unused_port() {
                 error_msg.contains("Make sure required system tools are installed")
                     || error_msg.contains("command failed")
                     || error_msg.contains("not found")
+                    || error_msg.contains("lsof")
                     || error_msg.contains("netstat")
-                    || error_msg.contains("tasklist")
-                    || error_msg.contains("wmic")
+                    || error_msg.contains("ss")
                     || error_msg.contains("not available")
-                    || error_msg.contains("restricted CI environment")
-                    || error_msg.contains("PowerShell")
-                    || error_msg.contains("deprecated"),
+                    || error_msg.contains("restricted CI environment"),
                 "Unexpected error: {}",
                 error_msg
             );
@@ -95,13 +93,11 @@ async fn test_list_command_port_range_parsing() {
                 error_msg.contains("Make sure required system tools are installed")
                     || error_msg.contains("command failed")
                     || error_msg.contains("not found")
+                    || error_msg.contains("lsof")
                     || error_msg.contains("netstat")
-                    || error_msg.contains("tasklist")
-                    || error_msg.contains("wmic")
+                    || error_msg.contains("ss")
                     || error_msg.contains("not available")
-                    || error_msg.contains("restricted CI environment")
-                    || error_msg.contains("PowerShell")
-                    || error_msg.contains("deprecated"),
+                    || error_msg.contains("restricted CI environment"),
                 "Unexpected error: {}",
                 error_msg
             );
