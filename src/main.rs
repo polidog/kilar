@@ -18,11 +18,23 @@ async fn run() -> Result<()> {
     let cli = Cli::parse_args();
 
     match cli.command {
-        Commands::Check { port, protocol, interactive } => {
+        Commands::Check {
+            port,
+            protocol,
+            interactive,
+        } => {
             validate_port(port)?;
             validate_protocol(&protocol)?;
 
-            CheckCommand::execute(port, &protocol, cli.quiet, cli.json, cli.verbose, interactive).await?;
+            CheckCommand::execute(
+                port,
+                &protocol,
+                cli.quiet,
+                cli.json,
+                cli.verbose,
+                interactive,
+            )
+            .await?;
         }
         Commands::Kill {
             port,
