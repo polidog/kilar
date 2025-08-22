@@ -1,6 +1,6 @@
 # Makefile for kilar
 
-.PHONY: help build test clean release check fmt clippy audit install tap-setup tap-update
+.PHONY: help build test clean release check fmt clippy audit install
 
 # Default target
 help:
@@ -15,8 +15,6 @@ help:
 	@echo "  audit      - Run security audit"
 	@echo "  install    - Install the binary locally"
 	@echo "  ci         - Run all CI checks"
-	@echo "  tap-setup  - Setup Homebrew tap repository"
-	@echo "  tap-update - Update Homebrew formula (requires version)"
 
 # Build targets
 build:
@@ -88,15 +86,3 @@ build-macos-arm:
 build-all: release build-linux build-windows build-macos-intel build-macos-arm
 	@echo "All release binaries built!"
 
-# Homebrew tap management
-tap-setup:
-	@echo "Setting up Homebrew tap repository..."
-	@./scripts/setup-homebrew-tap.sh
-
-tap-update:
-	@if [ -z "$(VERSION)" ]; then \
-		echo "Error: VERSION is required. Usage: make tap-update VERSION=0.1.0"; \
-		exit 1; \
-	fi
-	@echo "Updating Homebrew formula for version $(VERSION)..."
-	@./scripts/update-formula.sh $(VERSION)

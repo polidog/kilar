@@ -27,25 +27,25 @@ TEMP_DIR=$(mktemp -d)
 echo "Creating homebrew-tap repository on GitHub..."
 
 # Create the repository
-gh repo create homebrew-tap --public --description "Homebrew tap for kilar - A powerful CLI tool for managing port processes" || {
+gh repo create homebrew-kilar --public --description "Homebrew tap for kilar - A powerful CLI tool for managing port processes" || {
     echo "Repository might already exist or creation failed."
     echo "If it exists, we'll continue with the setup."
 }
 
 echo ""
-echo "Cloning homebrew-tap repository..."
+echo "Cloning homebrew-kilar repository..."
 cd "$TEMP_DIR"
 
 # Clone the repository
-if gh repo clone polidog/homebrew-tap 2>/dev/null; then
-    cd homebrew-tap
+if gh repo clone polidog/homebrew-kilar 2>/dev/null; then
+    cd homebrew-kilar
 else
     echo "Failed to clone repository. It might not exist yet."
     echo "Creating local repository..."
-    mkdir homebrew-tap
-    cd homebrew-tap
+    mkdir homebrew-kilar
+    cd homebrew-kilar
     git init
-    git remote add origin https://github.com/polidog/homebrew-tap.git
+    git remote add origin https://github.com/polidog/homebrew-kilar.git
 fi
 
 echo ""
@@ -65,7 +65,7 @@ else
     echo "## Installation" >> README.md
     echo "" >> README.md
     echo '```bash' >> README.md
-    echo "brew tap polidog/tap" >> README.md
+    echo "brew tap polidog/kilar" >> README.md
     echo "brew install kilar" >> README.md
     echo '```' >> README.md
 fi
@@ -90,20 +90,20 @@ git commit -m "Initial setup of Homebrew tap for kilar" || {
 git branch -M main
 git push -u origin main || {
     echo "Push failed. You may need to set up the repository manually."
-    echo "Repository location: $TEMP_DIR/homebrew-tap"
+    echo "Repository location: $TEMP_DIR/homebrew-kilar"
 }
 
 echo ""
 echo "✅ Homebrew tap repository setup complete!"
 echo ""
-echo "Repository: https://github.com/polidog/homebrew-tap"
+echo "Repository: https://github.com/polidog/homebrew-kilar"
 echo ""
 echo "Users can now install kilar with:"
-echo "  brew tap polidog/tap"
+echo "  brew tap polidog/kilar"
 echo "  brew install kilar"
 echo ""
 echo "Or directly:"
-echo "  brew install polidog/tap/kilar"
+echo "  brew install polidog/kilar/kilar"
 echo ""
 echo "Note: You'll need to update the SHA256 checksums in Formula/kilar.rb"
 echo "after creating a release. Use: ./scripts/update-formula.sh <version>"
