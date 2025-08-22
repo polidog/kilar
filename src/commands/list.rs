@@ -13,6 +13,7 @@ impl ListCommand {
         kill: bool,
         quiet: bool,
         json: bool,
+        verbose: bool,
     ) -> Result<()> {
         let port_manager = PortManager::new();
         
@@ -48,18 +49,18 @@ impl ListCommand {
             println!("{}", serde_json::to_string_pretty(&json_output)?);
         } else if processes.is_empty() {
             if !quiet {
-                println!("{} 使用中のポートが見つかりませんでした", "○".blue());
+                println!("{} No ports in use found", "○".blue());
             }
         } else {
             if !quiet && !kill {
-                Self::print_table(&processes, true);
+                Self::print_table(&processes, verbose);
             }
             
             // 対話的kill機能
             if kill {
                 if processes.is_empty() {
                     if !quiet {
-                        println!("{} 終了可能なプロセスが見つかりませんでした", "○".blue());
+                        println!("{} No killable processes found", "○".blue());
                     }
                     return Ok(());
                 }
@@ -74,22 +75,22 @@ impl ListCommand {
     fn parse_port_range(range: &str) -> Result<(u16, u16)> {
         if let Some((start_str, end_str)) = range.split_once('-') {
             let start = start_str.parse::<u16>()
-                .map_err(|_| crate::Error::InvalidPort(format!("無効な開始ポート: {}", start_str)))?;
+                .map_err(|_| crate::Error::InvalidPort(format!("Invalid start port: {}", start_str)))?;
             let end = end_str.parse::<u16>()
-                .map_err(|_| crate::Error::InvalidPort(format!("無効な終了ポート: {}", end_str)))?;
+                .map_err(|_| crate::Error::InvalidPort(format!("Invalid end port: {}", end_str)))?;
             
             if start > end {
-                return Err(crate::Error::InvalidPort("開始ポートが終了ポートより大きいです".to_string()));
+                return Err(crate::Error::InvalidPort("Start port is greater than end port".to_string()));
             }
             
             Ok((start, end))
         } else {
-            Err(crate::Error::InvalidPort("ポート範囲の形式が無効です (例: 3000-4000)".to_string()))
+            Err(crate::Error::InvalidPort("Invalid port range format (e.g., 3000-4000)".to_string()))
         }
     }
     
     fn print_table(processes: &[crate::port::ProcessInfo], verbose: bool) {
-        println!("{}", "使用中のポート一覧:".bold());
+        println!("{}", "Ports in use:".bold().green());
         println!();
         
         if verbose {
@@ -133,7 +134,7 @@ impl ListCommand {
         }
         
         println!();
-        println!("合計: {} プロセス", processes.len().to_string().bold());
+        println!("{} {} processes", "Total:".cyan(), processes.len().to_string().bold());
     }
     
     async fn interactive_kill(processes: Vec<crate::port::ProcessInfo>, quiet: bool) -> Result<()> {
@@ -141,7 +142,7 @@ impl ListCommand {
         Self::print_table(&processes, true);
         println!();
         if !quiet {
-            println!("{}", "使用中のポートから終了するプロセスを選択してください:".bold());
+            println!("{}", "Select processes to kill:".bold().yellow());
             println!();
         }
         
@@ -158,13 +159,13 @@ impl ListCommand {
         }).collect();
         
         let selections = match MultiSelect::new()
-            .with_prompt("プロセスを選択 (Space: 選択, Enter: 確定, Esc/q: 終了)")
+            .with_prompt("Select processes (Space: select, Enter: confirm, Esc/q: cancel)")
             .items(&options)
             .interact_opt()? {
             Some(selected) => selected,
             None => {
                 if !quiet {
-                    println!("{} 操作がキャンセルされました", "×".yellow());
+                    println!("{} Operation cancelled", "×".yellow());
                 }
                 return Ok(());
             }
@@ -172,7 +173,7 @@ impl ListCommand {
         
         if selections.is_empty() {
             if !quiet {
-                println!("{} プロセスが選択されませんでした", "×".yellow());
+                println!("{} No processes selected", "×".yellow());
             }
             return Ok(());
         }
@@ -180,10 +181,10 @@ impl ListCommand {
         // 選択されたプロセス一覧を表示
         if !quiet {
             println!();
-            println!("{}", "選択されたプロセス:".bold());
+            println!("{}", "Selected processes:".bold().cyan());
             for &idx in &selections {
                 let process = &processes[idx];
-                println!("• {} (PID: {}) - ポート {}", 
+                println!("• {} (PID: {}) - Port {}", 
                     process.name, process.pid, process.port);
             }
             println!();
@@ -192,12 +193,12 @@ impl ListCommand {
         // 確認プロンプト
         let confirmed = if selections.len() == 1 {
             Confirm::new()
-                .with_prompt(format!("1個のプロセスを終了しますか？"))
+                .with_prompt("Kill 1 process?")
                 .default(false)
                 .interact()?
         } else {
             Confirm::new()
-                .with_prompt(format!("{}個のプロセスを終了しますか？", selections.len()))
+                .with_prompt(format!("Kill {} processes?", selections.len()))
                 .default(false)
                 .interact()?
         };
@@ -231,13 +232,13 @@ impl ListCommand {
                 Ok(()) => {
                     success_count += 1;
                     if !quiet {
-                        println!("{} {} (PID: {}) を終了しました", 
+                        println!("{} Killed {} (PID: {})", 
                             "✓".green(), process.name, process.pid);
                     }
                 },
                 Err(e) => {
                     if !quiet {
-                        println!("{} {} (PID: {}) の終了に失敗: {}", 
+                        println!("{} Failed to kill {} (PID: {}): {}", 
                             "×".red(), process.name, process.pid, e);
                     }
                     errors.push((process, e));
@@ -249,11 +250,11 @@ impl ListCommand {
         if !quiet && selections.len() > 1 {
             println!();
             if success_count > 0 {
-                println!("{} {}個のプロセスを正常に終了しました", 
+                println!("{} Successfully killed {} processes", 
                     "✓".green(), success_count);
             }
             if !errors.is_empty() {
-                println!("{} {}個のプロセスの終了に失敗しました", 
+                println!("{} Failed to kill {} processes", 
                     "×".red(), errors.len());
             }
         }
@@ -278,5 +279,56 @@ impl StringExt for String {
         } else {
             format!("{}...", &self[..max_len.saturating_sub(3)])
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_port_range() {
+        let result = ListCommand::parse_port_range("3000-4000").unwrap();
+        assert_eq!(result, (3000, 4000));
+
+        let result = ListCommand::parse_port_range("80-443").unwrap();
+        assert_eq!(result, (80, 443));
+
+        let result = ListCommand::parse_port_range("8080-8080").unwrap();
+        assert_eq!(result, (8080, 8080));
+    }
+
+    #[test]
+    fn test_parse_port_range_invalid() {
+        let result = ListCommand::parse_port_range("4000-3000");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("greater than end"));
+
+        let result = ListCommand::parse_port_range("abc-def");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Invalid start port"));
+
+        let result = ListCommand::parse_port_range("3000");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Invalid port range format"));
+
+        let result = ListCommand::parse_port_range("3000-abc");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Invalid end port"));
+    }
+
+    #[test]
+    fn test_string_truncate_with_ellipsis() {
+        let s = String::from("short");
+        assert_eq!(s.truncate_with_ellipsis(10), "short");
+
+        let s = String::from("this is a long string");
+        assert_eq!(s.truncate_with_ellipsis(10), "this is...");
+
+        let s = String::from("exact");
+        assert_eq!(s.truncate_with_ellipsis(5), "exact");
+
+        let s = String::from("toolong");
+        assert_eq!(s.truncate_with_ellipsis(5), "to...");
     }
 }

@@ -1,183 +1,223 @@
-# kilar
+# kilar 🔌
 
-A CLI tool for managing port processes during development.
+A powerful CLI tool for managing port processes on your system. Quickly find and terminate processes using specific ports with an intuitive interface.
 
-## Overview
+## Features ✨
 
-`kilar` is a command-line tool designed to solve the common problem of "port already in use" during development. It allows you to easily check which processes are using specific ports and kill them when necessary.
+- **Check Port Status**: Instantly see if a port is in use and which process is using it
+- **Kill Processes**: Terminate processes using specific ports with safety confirmations
+- **List Active Ports**: View all ports in use with detailed process information
+- **Interactive Mode**: Select multiple processes to terminate with an interactive UI
+- **Cross-Platform**: Works on macOS, Linux, and Windows
+- **Multiple Output Formats**: Standard, JSON, and verbose modes
+- **Color-Coded Output**: Easy-to-read terminal output with intuitive colors
 
-## Problem it Solves
+## Installation 📦
 
-During web development, these issues frequently occur:
-- Getting "port already in use" errors when starting development servers
-- Manually finding which process is using a port is cumbersome
-- Having to look up PIDs and manually kill processes is time-consuming
-
-## Features
-
-### 1. Check Port Usage
-Display detailed information about processes using a specific port.
+### From source
 
 ```bash
-kilar check <port>
-# or
-kilar c <port>
-```
-
-**Information displayed:**
-- Process ID (PID)
-- Process name
-- Command line
-- Port number
-- Protocol (TCP/UDP)
-
-### 2. Kill Process
-Stop processes using a specific port.
-
-```bash
-kilar kill <port>
-# or
-kilar k <port>
-```
-
-**Behavior:**
-- Shows interactive confirmation prompt (default)
-- Force kill option `-f, --force` to skip confirmation
-- Allows selection when multiple processes use the same port
-
-### 3. List Used Ports
-Display all currently used ports and their processes.
-
-```bash
-kilar list
-# or
-kilar ls
-```
-
-**Display options:**
-- `--ports <range>` : Show specific port range only (e.g., 3000-4000)
-- `--sort <field>` : Sort order (port, pid, name)
-- `--filter <keyword>` : Filter by process name
-
-## Command Structure
-
-```
-kilar <command> [options] [arguments]
-
-Commands:
-  check, c <port>    Check port usage
-  kill, k <port>     Kill process using the port
-  list, ls           List all used ports
-  help, h            Show help
-  version, v         Show version
-
-Global Options:
-  -v, --verbose      Show verbose output
-  -q, --quiet        Show minimal output only
-  --json             Output in JSON format
-```
-
-## Usage Examples
-
-### Example 1: Check port 3000
-```bash
-$ kilar check 3000
-Port 3000 is in use by:
-  PID: 12345
-  Process: node
-  Command: node server.js
-  Protocol: TCP
-```
-
-### Example 2: Kill process on port 3000
-```bash
-$ kilar kill 3000
-Found process using port 3000:
-  PID: 12345
-  Process: node
-  Command: node server.js
-
-Are you sure you want to kill this process? (y/N): y
-Process 12345 terminated successfully.
-```
-
-### Example 3: List ports in range
-```bash
-$ kilar list --ports 3000-4000
-Port    PID     Process         Protocol
-3000    12345   node            TCP
-3001    12346   python          TCP
-3306    23456   mysqld          TCP
-```
-
-## Error Handling
-
-- Shows appropriate message when port is not in use
-- Suggests sudo execution when permission is insufficient
-- Shows error message for invalid port numbers
-
-## Platform Support
-
-- macOS
-- Linux
-- Windows (limited support)
-
-## Technical Specifications
-
-### Development Language
-- Rust
-
-### Dependencies
-- System commands: `lsof` (macOS/Linux), `netstat` (Windows)
-- Rust crates:
-  - `clap`: Command-line argument parser
-  - `serde`: For JSON output
-  - `colored`: Color output
-  - `dialoguer`: Interactive prompts
-
-### Build Requirements
-- Rust 1.70.0 or higher
-- Cargo
-
-## Installation
-
-```bash
-# Using Cargo
-cargo install kilar
-
-# Or build from source
-git clone https://github.com/polidog/kilar
+git clone https://github.com/polidog/kilar.git
 cd kilar
 cargo build --release
+sudo cp target/release/kilar /usr/local/bin/
 ```
 
-## Configuration File (Optional)
+### Using cargo
 
-Customize settings with `~/.config/kilar/config.toml`:
-
-```toml
-[defaults]
-force_kill = false
-output_format = "table"  # table, json, minimal
-color_output = true
-
-[aliases]
-# Custom alias definitions
-dev = "check 3000"
+```bash
+cargo install kilar
 ```
 
-## Future Enhancements
+## Usage 🚀
 
-- [ ] Automatic port release and restart functionality
-- [ ] Process group management
-- [ ] Port usage history tracking
-- [ ] Web UI dashboard
-- [ ] Docker/container port management
+### Check if a port is in use
 
-## License
+```bash
+# Check port 3000
+kilar check 3000
 
-MIT
+# Check UDP port
+kilar check 5353 -p udp
 
-## Author
+# JSON output
+kilar check 3000 --json
 
-polidog
+# Verbose mode for detailed information
+kilar check 3000 -v
+```
+
+### Kill a process using a specific port
+
+```bash
+# Kill process on port 3000
+kilar kill 3000
+
+# Force kill without confirmation
+kilar kill 3000 --force
+
+# Kill UDP process
+kilar kill 5353 -p udp
+```
+
+### List all ports in use
+
+```bash
+# List all TCP ports
+kilar list
+
+# List all ports (TCP and UDP)
+kilar list -p all
+
+# Filter by port range
+kilar list -r 3000-4000
+
+# Filter by process name
+kilar list -f node
+
+# Sort by different criteria
+kilar list -s pid    # Sort by PID
+kilar list -s name   # Sort by process name
+kilar list -s port   # Sort by port number (default)
+
+# Interactive kill mode
+kilar list          # Select processes to kill interactively
+kilar list --view-only  # Just view, no kill option
+```
+
+## Command Options 🎛️
+
+### Global Options
+- `-q, --quiet`: Suppress output
+- `-j, --json`: Output in JSON format
+- `-v, --verbose`: Enable verbose output
+- `-h, --help`: Print help information
+- `-V, --version`: Print version information
+
+### Check Command
+```bash
+kilar check <PORT> [OPTIONS]
+```
+- `PORT`: Port number to check
+- `-p, --protocol <PROTOCOL>`: Protocol (tcp/udp) [default: tcp]
+
+### Kill Command
+```bash
+kilar kill <PORT> [OPTIONS]
+```
+- `PORT`: Port number of the process to kill
+- `-f, --force`: Force kill without confirmation
+- `-p, --protocol <PROTOCOL>`: Protocol (tcp/udp) [default: tcp]
+
+### List Command
+```bash
+kilar list [OPTIONS]
+```
+- `-r, --ports <RANGE>`: Port range to filter (e.g., 3000-4000)
+- `-f, --filter <NAME>`: Filter by process name
+- `-s, --sort <ORDER>`: Sort order (port/pid/name) [default: port]
+- `-p, --protocol <PROTOCOL>`: Protocol (tcp/udp/all) [default: tcp]
+- `--view-only`: View only (no kill feature)
+
+## Examples 📝
+
+### Development Workflow
+
+```bash
+# Check if your development server port is free
+kilar check 3000
+
+# If occupied, see what's using it
+kilar check 3000 -v
+
+# Kill the process if needed
+kilar kill 3000
+
+# List all development-related ports
+kilar list -r 3000-9000 -f node
+```
+
+### System Administration
+
+```bash
+# List all services
+kilar list -p all
+
+# Find specific service
+kilar list -f nginx
+
+# Check system ports
+kilar list -r 1-1024
+
+# Export port usage as JSON
+kilar list --json > ports.json
+```
+
+## Output Format 🎨
+
+### Standard Output
+- ✓ Green checkmark: Success/Port in use
+- × Red cross: Error/Failed operation
+- ○ Blue circle: Information/Port available
+- Yellow: Port numbers and process names
+- Cyan: PIDs and labels
+- Blue: Protocol information
+
+### JSON Output
+All commands support JSON output for scripting and automation:
+
+```json
+{
+  "port": 3000,
+  "protocol": "tcp",
+  "status": "occupied",
+  "process": {
+    "pid": 12345,
+    "name": "node",
+    "command": "node server.js"
+  }
+}
+```
+
+## Requirements 📋
+
+- **macOS/Linux**: `lsof` command (usually pre-installed)
+- **Windows**: `netstat` command (pre-installed)
+- **Permissions**: Some operations may require sudo/administrator privileges
+
+## Building from Source 🔨
+
+```bash
+# Clone the repository
+git clone https://github.com/polidog/kilar.git
+cd kilar
+
+# Build in release mode
+cargo build --release
+
+# Run tests
+cargo test
+
+# Install locally
+cargo install --path .
+```
+
+## License 📄
+
+This project is licensed under the MIT License.
+
+## Author 👤
+
+**polidog**
+
+- GitHub: [@polidog](https://github.com/polidog)
+
+## Acknowledgments 🙏
+
+- Built with Rust 🦀
+- Uses `tokio` for async operations
+- Terminal UI powered by `dialoguer` and `colored`
+
+---
+
+**Note**: This tool requires appropriate permissions to view and terminate processes. Some system processes may require elevated privileges (sudo/administrator).
