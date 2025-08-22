@@ -511,7 +511,6 @@ impl PortManager {
         }
     }
 
-
     #[cfg(not(target_os = "windows"))]
     async fn get_process_command(&self, pid: u32) -> Result<String> {
         let output = TokioCommand::new("ps")
