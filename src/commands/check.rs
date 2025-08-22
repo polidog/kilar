@@ -55,7 +55,8 @@ impl CheckCommand {
                         "process": {
                             "pid": process_info.pid,
                             "name": process_info.name,
-                            "path": process_info.executable_path,
+                            "executable_path": process_info.executable_path,
+                            "working_directory": process_info.working_directory,
                             "command": process_info.command
                         }
                     });
@@ -69,7 +70,11 @@ impl CheckCommand {
                     );
                     println!("  {} {}", "PID:".cyan(), process_info.pid);
                     println!("  {} {}", "Process:".cyan(), process_info.name);
-                    println!("  {} {}", "Path:".cyan(), process_info.executable_path);
+
+                    // Use smart path display logic
+                    let port_manager = PortManager::new();
+                    let display_path = port_manager.get_display_path(&process_info);
+                    println!("  {} {}", "Path:".cyan(), display_path);
                     if verbose {
                         println!("  {} {}", "Command:".cyan(), process_info.command);
                     }
