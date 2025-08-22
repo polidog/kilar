@@ -65,6 +65,20 @@ impl PortManager {
 
     #[cfg(not(target_os = "windows"))]
     async fn list_processes_unix(&self, protocol: &str) -> Result<Vec<ProcessInfo>> {
+        // Try lsof first, fallback to ss, then netstat
+        if let Ok(result) = self.try_lsof(protocol).await {
+            return Ok(result);
+        }
+
+        if let Ok(result) = self.try_ss(protocol).await {
+            return Ok(result);
+        }
+
+        self.try_netstat_unix(protocol).await
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    async fn try_lsof(&self, protocol: &str) -> Result<Vec<ProcessInfo>> {
         let mut cmd = TokioCommand::new("lsof");
         cmd.arg("-n") // 数値表示（ホスト名解決なし）
             .arg("-P"); // ポート番号を数値表示
@@ -84,21 +98,99 @@ impl PortManager {
             }
         }
 
-        let output = cmd
-            .output()
-            .await
-            .map_err(|e| crate::Error::CommandFailed(format!("lsof command failed: {}", e)))?;
+        let output = cmd.output().await.map_err(|e| {
+            crate::Error::CommandFailed(format!(
+                "lsof command failed: {}. Make sure required system tools are installed",
+                e
+            ))
+        })?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(crate::Error::CommandFailed(format!(
-                "lsof failed: {}",
+                "lsof failed: {}. Make sure required system tools are installed",
                 stderr
             )));
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         self.parse_lsof_output(&stdout, protocol).await
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    async fn try_ss(&self, protocol: &str) -> Result<Vec<ProcessInfo>> {
+        let mut cmd = TokioCommand::new("ss");
+        cmd.arg("-n") // 数値表示
+            .arg("-p"); // プロセス情報表示
+
+        match protocol.to_lowercase().as_str() {
+            "tcp" => {
+                cmd.arg("-lt"); // TCP listening
+            }
+            "udp" => {
+                cmd.arg("-lu"); // UDP
+            }
+            "all" => {
+                cmd.arg("-ltu"); // TCP and UDP
+            }
+            _ => {
+                cmd.arg("-lt"); // デフォルトはTCP
+            }
+        }
+
+        let output = cmd
+            .output()
+            .await
+            .map_err(|e| crate::Error::CommandFailed(format!("ss command failed: {}", e)))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(crate::Error::CommandFailed(format!(
+                "ss failed: {}",
+                stderr
+            )));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        self.parse_ss_output(&stdout, protocol).await
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    async fn try_netstat_unix(&self, protocol: &str) -> Result<Vec<ProcessInfo>> {
+        let mut cmd = TokioCommand::new("netstat");
+        cmd.arg("-n") // 数値表示
+            .arg("-p"); // プロセス情報表示
+
+        match protocol.to_lowercase().as_str() {
+            "tcp" => {
+                cmd.arg("-lt"); // TCP listening
+            }
+            "udp" => {
+                cmd.arg("-lu"); // UDP
+            }
+            "all" => {
+                cmd.arg("-ltu"); // TCP and UDP
+            }
+            _ => {
+                cmd.arg("-lt"); // デフォルトはTCP
+            }
+        }
+
+        let output = cmd
+            .output()
+            .await
+            .map_err(|e| crate::Error::CommandFailed(format!("netstat command failed: {}", e)))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(crate::Error::CommandFailed(format!(
+                "netstat failed: {}",
+                stderr
+            )));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        self.parse_netstat_unix_output(&stdout, protocol).await
     }
 
     async fn parse_lsof_output(&self, output: &str, _protocol: &str) -> Result<Vec<ProcessInfo>> {
@@ -161,9 +253,11 @@ impl PortManager {
 
             let path = self.extract_executable_path(&full_command);
 
+            let name = self.extract_process_name(&full_command);
+
             processes.push(ProcessInfo {
                 pid,
-                name: command.to_string(),
+                name,
                 command: full_command,
                 port,
                 protocol,
@@ -301,6 +395,166 @@ impl PortManager {
         }
 
         Ok(processes)
+    }
+
+    async fn parse_ss_output(&self, output: &str, _protocol: &str) -> Result<Vec<ProcessInfo>> {
+        let mut processes = Vec::new();
+
+        for line in output.lines().skip(1) {
+            // ヘッダー行をスキップ
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() < 7 {
+                continue;
+            }
+
+            let protocol = parts[0].to_lowercase();
+            let local_address = parts[4];
+            let process_info = if parts.len() > 6 {
+                parts[6]
+            } else {
+                continue;
+            };
+
+            // ポート番号を抽出
+            let port = if let Some(colon_pos) = local_address.rfind(':') {
+                match local_address[colon_pos + 1..].parse::<u16>() {
+                    Ok(port) => port,
+                    Err(_) => continue,
+                }
+            } else {
+                continue;
+            };
+
+            // プロセス情報からPIDを抽出 (users:(("process",pid=1234,fd=5)))
+            let pid = if let Some(pid_start) = process_info.find("pid=") {
+                let pid_start = pid_start + 4;
+                if let Some(pid_end) = process_info[pid_start..].find(',') {
+                    match process_info[pid_start..pid_start + pid_end].parse::<u32>() {
+                        Ok(pid) => pid,
+                        Err(_) => continue,
+                    }
+                } else {
+                    continue;
+                }
+            } else {
+                continue;
+            };
+
+            let address = if let Some(colon_pos) = local_address.rfind(':') {
+                local_address[..colon_pos].to_string()
+            } else {
+                "*".to_string()
+            };
+
+            let full_command = match self.get_process_command(pid).await {
+                Ok(cmd) => cmd,
+                Err(_) => "Unknown".to_string(),
+            };
+
+            let name = self.extract_process_name(&full_command);
+            let path = self.extract_executable_path(&full_command);
+
+            processes.push(ProcessInfo {
+                pid,
+                name,
+                command: full_command,
+                port,
+                protocol,
+                address,
+                path,
+            });
+        }
+
+        Ok(processes)
+    }
+
+    async fn parse_netstat_unix_output(
+        &self,
+        output: &str,
+        _protocol: &str,
+    ) -> Result<Vec<ProcessInfo>> {
+        let mut processes = Vec::new();
+
+        for line in output.lines() {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() < 7 {
+                continue;
+            }
+
+            let protocol = parts[0].to_lowercase();
+            let local_address = parts[3];
+            let state = parts[5];
+            let process_info = parts[6];
+
+            // リスニング状態のみ処理
+            if !state.contains("LISTEN") {
+                continue;
+            }
+
+            // ポート番号を抽出
+            let port = if let Some(colon_pos) = local_address.rfind(':') {
+                match local_address[colon_pos + 1..].parse::<u16>() {
+                    Ok(port) => port,
+                    Err(_) => continue,
+                }
+            } else {
+                continue;
+            };
+
+            // プロセス情報からPIDを抽出 (1234/process_name)
+            let pid = if let Some(slash_pos) = process_info.find('/') {
+                match process_info[..slash_pos].parse::<u32>() {
+                    Ok(pid) => pid,
+                    Err(_) => continue,
+                }
+            } else {
+                continue;
+            };
+
+            let address = if let Some(colon_pos) = local_address.rfind(':') {
+                local_address[..colon_pos].to_string()
+            } else {
+                "*".to_string()
+            };
+
+            let full_command = match self.get_process_command(pid).await {
+                Ok(cmd) => cmd,
+                Err(_) => process_info.to_string(),
+            };
+
+            let name = self.extract_process_name(&full_command);
+            let path = self.extract_executable_path(&full_command);
+
+            processes.push(ProcessInfo {
+                pid,
+                name,
+                command: full_command,
+                port,
+                protocol,
+                address,
+                path,
+            });
+        }
+
+        Ok(processes)
+    }
+
+    fn extract_process_name(&self, command_line: &str) -> String {
+        if command_line.is_empty() {
+            return "Unknown".to_string();
+        }
+
+        let parts: Vec<&str> = command_line.split_whitespace().collect();
+        if let Some(first_part) = parts.first() {
+            // パスから実行ファイル名だけを抽出
+            if let Some(name) = first_part.split('/').next_back() {
+                name.to_string()
+            } else {
+                first_part.to_string()
+            }
+        } else {
+            "Unknown".to_string()
+        }
     }
 
     fn extract_executable_path(&self, command_line: &str) -> String {
