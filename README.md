@@ -65,7 +65,7 @@ kilar list              # List all ports in use
 - **Verbose mode** - Get detailed information when troubleshooting
 
 ### 🌍 **Cross-Platform & Modern**
-- **Universal compatibility** - Works on macOS, Linux, and Windows
+- **Universal compatibility** - Works on macOS and Linux
 - **Multiple installation methods** - Homebrew, Cargo, or from source
 - **Zero dependencies** - Single binary with no runtime requirements
 
@@ -100,7 +100,6 @@ Download pre-built binaries from the [releases page](https://github.com/polidog/
 - **macOS** (Apple Silicon): `kilar-aarch64-apple-darwin.tar.gz`
 - **Linux** (x86_64): `kilar-x86_64-unknown-linux-gnu.tar.gz`
 - **Linux** (ARM64): `kilar-aarch64-unknown-linux-gnu.tar.gz`
-- **Windows**: `kilar-x86_64-pc-windows-msvc.tar.gz`
 
 ### 🔨 From Source
 
@@ -266,8 +265,7 @@ All commands support JSON output for scripting and automation:
 ## Requirements 📋
 
 - **macOS/Linux**: `lsof` command (usually pre-installed)
-- **Windows**: `netstat` command (pre-installed)
-- **Permissions**: Some operations may require sudo/administrator privileges
+- **Permissions**: Some operations may require sudo privileges
 
 ## Building from Source 🔨
 
@@ -302,7 +300,7 @@ See our [Contributing Guide](CONTRIBUTING.md) for detailed instructions.
 `kilar` handles system processes and requires appropriate permissions:
 
 - **Process visibility**: Requires read access to system process information
-- **Process termination**: May require elevated privileges (sudo/administrator) for some processes
+- **Process termination**: May require elevated privileges (sudo) for some processes
 - **Network data**: Accesses network connection information through system commands
 
 For security issues, please see our [Security Policy](https://github.com/polidog/kilar/security).
@@ -318,7 +316,7 @@ For security issues, please see our [Security Policy](https://github.com/polidog
 ### 🚀 CI/CD Status
 [![CI](https://github.com/polidog/kilar/actions/workflows/ci.yml/badge.svg)](https://github.com/polidog/kilar/actions/workflows/ci.yml)
 
-> **Note**: Windows CI tests are currently disabled due to environment instability. The project fully supports Windows platform, but automated testing is temporarily limited to macOS and Linux environments. Windows builds are still generated and released.
+> **Note**: This tool is designed for Unix-like systems (macOS and Linux) and provides comprehensive port management functionality on these platforms.
 
 ## 📊 Performance & Compatibility
 
@@ -326,7 +324,6 @@ For security issues, please see our [Security Policy](https://github.com/polidog
 |----------|-------------|--------|--------|
 | **macOS** | 10.15+ | ✅ Full Support | Intel & Apple Silicon |
 | **Linux** | Any modern | ✅ Full Support | Requires `lsof` |
-| **Windows** | 10+ | ✅ Full Support | Uses `netstat` |
 
 ## 🗺️ Roadmap
 
@@ -371,4 +368,4 @@ Thanks to all [contributors](https://github.com/polidog/kilar/contributors) who 
 
 ---
 
-> **⚠️ Important**: This tool requires appropriate permissions to view and terminate processes. Some system processes may require elevated privileges (sudo/administrator).
+> **⚠️ Important**: This tool requires appropriate permissions to view and terminate processes. Some system processes may require elevated privileges (sudo).
