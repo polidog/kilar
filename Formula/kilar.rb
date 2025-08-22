@@ -1,7 +1,7 @@
 class Kilar < Formula
   desc "Powerful CLI tool for managing port processes"
   homepage "https://github.com/polidog/kilar"
-  version "0.1.0"
+  version "0.1.1"
   license "MIT"
 
   on_macos do
