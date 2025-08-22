@@ -14,6 +14,23 @@ A powerful CLI tool for managing port processes on your system. Quickly find and
 
 ## Installation 📦
 
+### Using Homebrew (macOS/Linux)
+
+```bash
+# Add the tap and install
+brew tap polidog/tap
+brew install kilar
+
+# Or install directly
+brew install polidog/tap/kilar
+```
+
+### Using cargo
+
+```bash
+cargo install kilar
+```
+
 ### From source
 
 ```bash
@@ -21,12 +38,6 @@ git clone https://github.com/polidog/kilar.git
 cd kilar
 cargo build --release
 sudo cp target/release/kilar /usr/local/bin/
-```
-
-### Using cargo
-
-```bash
-cargo install kilar
 ```
 
 ## Usage 🚀

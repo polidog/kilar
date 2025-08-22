@@ -1,0 +1,63 @@
+name: Update Homebrew Formula
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to update formula for (without v prefix)'
+        required: true
+        type: string
+
+jobs:
+  update-formula:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: main
+
+      - name: Set version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            VERSION="${{ github.event.release.tag_name }}"
+          else
+            VERSION="v${{ github.event.inputs.version }}"
+          fi
+          echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Version: ${VERSION}"
+
+      - name: Wait for release assets
+        if: github.event_name == 'release'
+        run: sleep 60
+
+      - name: Update formula
+        run: |
+          ./scripts/update-formula.sh "${{ steps.version.outputs.VERSION }}"
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: update Homebrew formula to ${{ steps.version.outputs.VERSION }}"
+          title: "Update Homebrew formula to ${{ steps.version.outputs.VERSION }}"
+          body: |
+            This PR updates the Homebrew formula to version ${{ steps.version.outputs.VERSION }}.
+            
+            ## Changes
+            - Updated version number
+            - Updated SHA256 checksums for all platforms
+            
+            ## Checklist
+            - [ ] SHA256 checksums verified
+            - [ ] Formula syntax validated
+            - [ ] Test installation locally
+          branch: update-formula-${{ steps.version.outputs.VERSION }}
+          delete-branch: true
+          labels: |
+            homebrew
+            automation
