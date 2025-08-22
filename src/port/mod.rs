@@ -7,6 +7,7 @@ pub struct ProcessInfo {
     pub pid: u32,
     pub name: String,
     pub command: String,
+    pub executable_path: String,
     pub port: u16,
     pub protocol: String,
     pub address: String,
@@ -222,11 +223,13 @@ impl PortManager {
             };
 
             let name = self.extract_process_name(&full_command);
+            let executable_path = self.extract_executable_path(&full_command);
 
             processes.push(ProcessInfo {
                 pid,
                 name,
                 command: full_command,
+                executable_path,
                 port,
                 protocol,
                 address,
@@ -291,11 +294,13 @@ impl PortManager {
             };
 
             let name = self.extract_process_name(&full_command);
+            let executable_path = self.extract_executable_path(&full_command);
 
             processes.push(ProcessInfo {
                 pid,
                 name,
                 command: full_command,
+                executable_path,
                 port,
                 protocol,
                 address,
@@ -360,11 +365,13 @@ impl PortManager {
             };
 
             let name = self.extract_process_name(&full_command);
+            let executable_path = self.extract_executable_path(&full_command);
 
             processes.push(ProcessInfo {
                 pid,
                 name,
                 command: full_command,
+                executable_path,
                 port,
                 protocol,
                 address,
@@ -384,6 +391,19 @@ impl PortManager {
             // パスから実行ファイル名だけを抽出
             let name = first_part.split('/').next_back().unwrap_or(first_part);
             name.to_string()
+        } else {
+            "Unknown".to_string()
+        }
+    }
+
+    fn extract_executable_path(&self, command_line: &str) -> String {
+        if command_line.is_empty() {
+            return "Unknown".to_string();
+        }
+
+        let parts: Vec<&str> = command_line.split_whitespace().collect();
+        if let Some(first_part) = parts.first() {
+            first_part.to_string()
         } else {
             "Unknown".to_string()
         }

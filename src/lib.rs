@@ -18,7 +18,7 @@
 //! #[tokio::main]
 //! async fn main() {
 //!     // Check if port 3000 is in use
-//!     CheckCommand::execute(3000, "tcp", false, false, false).await.unwrap();
+//!     CheckCommand::execute(3000, "tcp", false, false, false, false).await.unwrap();
 //! }
 //! ```
 

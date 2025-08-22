@@ -1,7 +1,7 @@
 # kilar 🔌
 
 [![CI](https://github.com/polidog/kilar/actions/workflows/ci.yml/badge.svg)](https://github.com/polidog/kilar/actions/workflows/ci.yml)
-[![Release](https://github.com/polidog/kilar/actions/workflows/release.yml/badge.svg)](https://github.com/polidog/kilar/actions/workflows/release.yml)
+[![Release](https://github.com/polidog/kilar/actions/workflows/release.yml/badge.svg)](https://github.com/polidog/kilar/actions/workflows/release.ml)
 [![Crates.io](https://img.shields.io/crates/v/kilar.svg)](https://crates.io/crates/kilar)
 [![Downloads](https://img.shields.io/crates/d/kilar.svg)](https://crates.io/crates/kilar)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)

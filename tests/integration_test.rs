@@ -7,7 +7,7 @@ use kilar::{
 #[tokio::test]
 async fn test_check_command_with_unused_port() {
     // Test checking an unused port (high port number likely to be free)
-    let result = CheckCommand::execute(65432, "tcp", false, true, false).await;
+    let result = CheckCommand::execute(65432, "tcp", false, true, false, false).await;
     // Even if system tools are missing, the command should handle it gracefully
     // and not panic. We accept both success and specific error cases.
     match result {
