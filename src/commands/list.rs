@@ -185,8 +185,8 @@ impl ListCommand {
                 let display_path = port_manager.get_display_path(process);
                 println!(
                     "• {} (PID: {}) - Port {} - Path: {}",
-                    process.name.yellow(), 
-                    process.pid.to_string().blue(), 
+                    process.name.yellow(),
+                    process.pid.to_string().blue(),
                     process.port.to_string().white(),
                     display_path.cyan()
                 );
