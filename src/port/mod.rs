@@ -504,10 +504,10 @@ impl PortManager {
             // パスから実行ファイル名だけを抽出
             let name = if cfg!(target_os = "windows") {
                 // Windowsの場合、両方のセパレータを考慮
-                first_part.split(&['\\', '/'][..]).last().unwrap_or(first_part)
+                first_part.split(&['\\', '/'][..]).next_back().unwrap_or(first_part)
             } else {
                 // Unix系の場合
-                first_part.split('/').last().unwrap_or(first_part)
+                first_part.split('/').next_back().unwrap_or(first_part)
             };
 
             // Windows環境では.exeを削除
