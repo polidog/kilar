@@ -8,6 +8,7 @@ pub struct ProcessInfo {
     pub name: String,
     pub command: String,
     pub executable_path: String,
+    pub working_directory: String,
     pub port: u16,
     pub protocol: String,
     pub address: String,
@@ -223,13 +224,32 @@ impl PortManager {
             };
 
             let name = self.extract_process_name(&full_command);
-            let executable_path = self.extract_executable_path(&full_command);
+
+            // Get the actual executable path
+            let executable_path = match self.get_process_executable(pid).await {
+                Ok(path) => {
+                    // If we got the same as command (fallback case), extract it
+                    if path == full_command {
+                        self.extract_executable_path(&full_command)
+                    } else {
+                        path
+                    }
+                }
+                Err(_) => self.extract_executable_path(&full_command),
+            };
+
+            // Get the working directory
+            let working_directory = self
+                .get_process_working_directory(pid)
+                .await
+                .unwrap_or_else(|_| "Unknown".to_string());
 
             processes.push(ProcessInfo {
                 pid,
                 name,
                 command: full_command,
                 executable_path,
+                working_directory,
                 port,
                 protocol,
                 address,
@@ -294,13 +314,32 @@ impl PortManager {
             };
 
             let name = self.extract_process_name(&full_command);
-            let executable_path = self.extract_executable_path(&full_command);
+
+            // Get the actual executable path
+            let executable_path = match self.get_process_executable(pid).await {
+                Ok(path) => {
+                    // If we got the same as command (fallback case), extract it
+                    if path == full_command {
+                        self.extract_executable_path(&full_command)
+                    } else {
+                        path
+                    }
+                }
+                Err(_) => self.extract_executable_path(&full_command),
+            };
+
+            // Get the working directory
+            let working_directory = self
+                .get_process_working_directory(pid)
+                .await
+                .unwrap_or_else(|_| "Unknown".to_string());
 
             processes.push(ProcessInfo {
                 pid,
                 name,
                 command: full_command,
                 executable_path,
+                working_directory,
                 port,
                 protocol,
                 address,
@@ -365,13 +404,32 @@ impl PortManager {
             };
 
             let name = self.extract_process_name(&full_command);
-            let executable_path = self.extract_executable_path(&full_command);
+
+            // Get the actual executable path
+            let executable_path = match self.get_process_executable(pid).await {
+                Ok(path) => {
+                    // If we got the same as command (fallback case), extract it
+                    if path == full_command {
+                        self.extract_executable_path(&full_command)
+                    } else {
+                        path
+                    }
+                }
+                Err(_) => self.extract_executable_path(&full_command),
+            };
+
+            // Get the working directory
+            let working_directory = self
+                .get_process_working_directory(pid)
+                .await
+                .unwrap_or_else(|_| "Unknown".to_string());
 
             processes.push(ProcessInfo {
                 pid,
                 name,
                 command: full_command,
                 executable_path,
+                working_directory,
                 port,
                 protocol,
                 address,
@@ -409,6 +467,30 @@ impl PortManager {
         }
     }
 
+    pub fn get_display_path(&self, process_info: &ProcessInfo) -> String {
+        // Prefer working directory for development processes (when it's not root)
+        if process_info.working_directory != "/" && process_info.working_directory != "Unknown" {
+            // Check if this is likely a development process based on the executable or command
+            let is_dev_process = process_info.executable_path.contains("/node")
+                || process_info.executable_path.contains("/python")
+                || process_info.executable_path.contains("/ruby")
+                || process_info.executable_path.contains("/java")
+                || process_info.command.contains("npm")
+                || process_info.command.contains("yarn")
+                || process_info.command.contains("pnpm")
+                || process_info.command.contains("next")
+                || process_info.command.contains("serve")
+                || process_info.command.contains("dev");
+
+            if is_dev_process {
+                return process_info.working_directory.clone();
+            }
+        }
+
+        // Fallback to executable path for system processes
+        process_info.executable_path.clone()
+    }
+
     async fn get_process_command(&self, pid: u32) -> Result<String> {
         let output = TokioCommand::new("ps")
             .arg("-p")
@@ -423,6 +505,78 @@ impl PortManager {
         } else {
             Err(crate::Error::ProcessNotFound(pid))
         }
+    }
+
+    async fn get_process_executable(&self, pid: u32) -> Result<String> {
+        // Try to get the actual executable path using lsof
+        let output = TokioCommand::new("lsof")
+            .arg("-p")
+            .arg(pid.to_string())
+            .output()
+            .await;
+
+        if let Ok(output) = output {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                // Look for the main executable (txt REG entry)
+                for line in stdout.lines() {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 9 {
+                        // Check if this is a regular file (REG) and text segment (txt)
+                        if parts[3] == "txt" && parts[4] == "REG" {
+                            // Extract the full path from field 8 onwards (0-indexed)
+                            // The path starts from the 9th field (index 8) and may contain spaces
+                            let path = parts[8..].join(" ");
+
+                            // Filter out system libraries and dyld, prefer application executables
+                            if !path.contains("/usr/lib")
+                                && !path.contains("/System/Library")
+                                && !path.contains("/usr/share")
+                                && !path.contains("/Library/Preferences/Logging")
+                                && !path.contains("/private/var/db")
+                                && !path.ends_with("/dyld")
+                            {
+                                return Ok(path);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fallback to ps command if lsof fails
+        self.get_process_command(pid).await
+    }
+
+    async fn get_process_working_directory(&self, pid: u32) -> Result<String> {
+        // Try to get the working directory using lsof
+        let output = TokioCommand::new("lsof")
+            .arg("-p")
+            .arg(pid.to_string())
+            .output()
+            .await;
+
+        if let Ok(output) = output {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                // Look for the current working directory (cwd DIR entry)
+                for line in stdout.lines() {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 9 {
+                        // Check if this is a directory (DIR) and current working directory (cwd)
+                        if parts[3] == "cwd" && parts[4] == "DIR" {
+                            // Extract the full path from field 8 onwards (0-indexed)
+                            // The path starts from the 9th field (index 8) and may contain spaces
+                            let path = parts[8..].join(" ");
+                            return Ok(path);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fallback to "Unknown" if we can't get the working directory
+        Ok("Unknown".to_string())
     }
 }
 

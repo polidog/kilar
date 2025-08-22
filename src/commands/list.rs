@@ -97,23 +97,28 @@ impl ListCommand {
         println!();
 
         println!(
-            "{:<8} {:<12} {:<20} {:<15} {}",
+            "{:<8} {:<12} {:<20} {:<10} {:<40} {}",
             "PORT".cyan().bold(),
             "PROTOCOL".cyan().bold(),
             "PROCESS".cyan().bold(),
             "PID".cyan().bold(),
+            "PATH".cyan().bold(),
             "COMMAND".cyan().bold()
         );
-        println!("{}", "-".repeat(80));
+        println!("{}", "-".repeat(130));
+
+        let port_manager = crate::port::PortManager::new();
 
         for process in processes {
+            let display_path = port_manager.get_display_path(process);
             println!(
-                "{:<8} {:<12} {:<20} {:<15} {}",
+                "{:<8} {:<12} {:<20} {:<10} {:<40} {}",
                 process.port.to_string().white(),
                 process.protocol.to_uppercase().green(),
-                process.name.yellow(),
+                process.name.truncate_with_ellipsis(18).yellow(),
                 process.pid.to_string().blue(),
-                process.command.truncate_with_ellipsis(50).dimmed()
+                display_path.truncate_with_ellipsis(38).cyan(),
+                process.command.truncate_with_ellipsis(40).dimmed()
             );
         }
 
