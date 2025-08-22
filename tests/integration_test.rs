@@ -20,7 +20,10 @@ async fn test_check_command_with_unused_port() {
             assert!(
                 error_msg.contains("Make sure required system tools are installed")
                     || error_msg.contains("command failed")
-                    || error_msg.contains("not found"),
+                    || error_msg.contains("not found")
+                    || error_msg.contains("netstat")
+                    || error_msg.contains("tasklist")
+                    || error_msg.contains("wmic"),
                 "Unexpected error: {}",
                 error_msg
             );
@@ -88,7 +91,10 @@ async fn test_list_command_port_range_parsing() {
             assert!(
                 error_msg.contains("Make sure required system tools are installed")
                     || error_msg.contains("command failed")
-                    || error_msg.contains("not found"),
+                    || error_msg.contains("not found")
+                    || error_msg.contains("netstat")
+                    || error_msg.contains("tasklist")
+                    || error_msg.contains("wmic"),
                 "Unexpected error: {}",
                 error_msg
             );

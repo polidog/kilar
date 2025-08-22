@@ -314,72 +314,11 @@ impl PortManager {
                 "*".to_string()
             };
 
-            // Windowsでプロセス名を取得（簡単な実装）
-            let (name, command) = ("Unknown".to_string(), "Unknown".to_string());
-
-            let path = self.extract_executable_path(&command);
-
-            processes.push(ProcessInfo {
-                pid,
-                name,
-                command,
-                port,
-                protocol,
-                address,
-                path,
-            });
-        }
-
-        Ok(processes)
-    }
-
-    #[cfg(target_os = "windows")]
-    async fn parse_netstat_output(
-        &self,
-        output: &str,
-        _protocol: &str,
-    ) -> Result<Vec<ProcessInfo>> {
-        let mut processes = Vec::new();
-
-        for line in output.lines() {
-            let fields: Vec<&str> = line.split_whitespace().collect();
-            if fields.len() < 5 {
-                continue;
-            }
-
-            let protocol = fields[0].to_lowercase();
-            let local_address = fields[1];
-            let state = fields[3];
-            let pid_str = fields[4];
-
-            // リスニング状態のみ処理
-            if state != "LISTENING" {
-                continue;
-            }
-
-            let pid = match pid_str.parse::<u32>() {
-                Ok(pid) => pid,
-                Err(_) => continue,
+            // Windowsでプロセス情報を取得
+            let (name, command) = match self.get_process_info_windows(pid).await {
+                Ok((n, c)) => (n, c),
+                Err(_) => ("Unknown".to_string(), "Unknown".to_string()),
             };
-
-            // ポート番号を抽出
-            let port = if let Some(colon_pos) = local_address.rfind(':') {
-                match local_address[colon_pos + 1..].parse::<u16>() {
-                    Ok(port) => port,
-                    Err(_) => continue,
-                }
-            } else {
-                continue;
-            };
-
-            let address = if let Some(colon_pos) = local_address.rfind(':') {
-                local_address[..colon_pos].to_string()
-            } else {
-                "*".to_string()
-            };
-
-            // Windowsでプロセス名を取得（簡単な実装）
-            let (name, command) = ("Unknown".to_string(), "Unknown".to_string());
 
             let path = self.extract_executable_path(&command);
 
@@ -546,9 +485,26 @@ impl PortManager {
 
         let parts: Vec<&str> = command_line.split_whitespace().collect();
         if let Some(first_part) = parts.first() {
-            // パスから実行ファイル名だけを抽出
-            if let Some(name) = first_part.split('/').next_back() {
-                name.to_string()
+            // パスから実行ファイル名だけを抽出（Windows/Unix両対応）
+            #[cfg(target_os = "windows")]
+            let separator = '\\';
+            #[cfg(not(target_os = "windows"))]
+            let separator = '/';
+
+            if let Some(name) = first_part.split(separator).last() {
+                // Windows環境では.exeを削除
+                #[cfg(target_os = "windows")]
+                {
+                    if name.to_lowercase().ends_with(".exe") {
+                        name[..name.len() - 4].to_string()
+                    } else {
+                        name.to_string()
+                    }
+                }
+                #[cfg(not(target_os = "windows"))]
+                {
+                    name.to_string()
+                }
             } else {
                 first_part.to_string()
             }
@@ -572,6 +528,7 @@ impl PortManager {
         }
     }
 
+    #[cfg(not(target_os = "windows"))]
     async fn get_process_command(&self, pid: u32) -> Result<String> {
         let output = TokioCommand::new("ps")
             .arg("-p")
@@ -586,6 +543,88 @@ impl PortManager {
         } else {
             Err(crate::Error::ProcessNotFound(pid))
         }
+    }
+
+    #[cfg(target_os = "windows")]
+    async fn get_process_info_windows(&self, pid: u32) -> Result<(String, String)> {
+        // tasklist.exe を使用してプロセス情報を取得
+        let output = TokioCommand::new("tasklist")
+            .arg("/FI")
+            .arg(&format!("PID eq {}", pid))
+            .arg("/FO")
+            .arg("CSV")
+            .arg("/NH") // ヘッダーなし
+            .output()
+            .await
+            .map_err(|e| crate::Error::CommandFailed(format!("tasklist command failed: {}", e)))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(crate::Error::CommandFailed(format!(
+                "tasklist failed: {}",
+                stderr
+            )));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let lines: Vec<&str> = stdout.lines().collect();
+
+        if let Some(line) = lines.first() {
+            // CSV形式のパース: "Image Name","PID","Session Name","Session#","Mem Usage"
+            let fields: Vec<&str> = line.split(',').collect();
+            if fields.len() >= 2 {
+                let image_name = fields[0].trim_matches('"');
+                let name = image_name.to_string();
+                
+                // 詳細なコマンド情報を取得するためにWMICを試行
+                match self.get_process_command_wmic(pid).await {
+                    Ok(command) => Ok((name, command)),
+                    Err(_) => Ok((name.clone(), name)), // フォールバック
+                }
+            } else {
+                Err(crate::Error::ProcessNotFound(pid))
+            }
+        } else {
+            Err(crate::Error::ProcessNotFound(pid))
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    async fn get_process_command_wmic(&self, pid: u32) -> Result<String> {
+        let output = TokioCommand::new("wmic")
+            .arg("process")
+            .arg("where")
+            .arg(&format!("ProcessId={}", pid))
+            .arg("get")
+            .arg("CommandLine,ExecutablePath")
+            .arg("/format:csv")
+            .output()
+            .await
+            .map_err(|e| crate::Error::CommandFailed(format!("wmic command failed: {}", e)))?;
+
+        if !output.status.success() {
+            return Err(crate::Error::ProcessNotFound(pid));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines().skip(1) { // ヘッダーをスキップ
+            if line.trim().is_empty() {
+                continue;
+            }
+            let fields: Vec<&str> = line.split(',').collect();
+            if fields.len() >= 3 {
+                let command_line = fields[1].trim();
+                let executable_path = fields[2].trim();
+                
+                if !command_line.is_empty() && command_line != "NULL" {
+                    return Ok(command_line.to_string());
+                } else if !executable_path.is_empty() && executable_path != "NULL" {
+                    return Ok(executable_path.to_string());
+                }
+            }
+        }
+
+        Err(crate::Error::ProcessNotFound(pid))
     }
 }
 
