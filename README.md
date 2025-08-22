@@ -1,37 +1,108 @@
 # kilar 🔌
 
-A powerful CLI tool for managing port processes on your system. Quickly find and terminate processes using specific ports with an intuitive interface.
+[![CI](https://github.com/polidog/kilar/actions/workflows/ci.yml/badge.svg)](https://github.com/polidog/kilar/actions/workflows/ci.yml)
+[![Release](https://github.com/polidog/kilar/actions/workflows/release.yml/badge.svg)](https://github.com/polidog/kilar/actions/workflows/release.yml)
+[![Crates.io](https://img.shields.io/crates/v/kilar.svg)](https://crates.io/crates/kilar)
+[![Downloads](https://img.shields.io/crates/d/kilar.svg)](https://crates.io/crates/kilar)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Rust Version](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org)
 
-## Features ✨
+**A powerful CLI tool for managing port processes on your system.** Quickly find and terminate processes using specific ports with an intuitive interface.
 
-- **Check Port Status**: Instantly see if a port is in use and which process is using it
-- **Kill Processes**: Terminate processes using specific ports with safety confirmations
-- **List Active Ports**: View all ports in use with detailed process information
-- **Interactive Mode**: Select multiple processes to terminate with an interactive UI
-- **Cross-Platform**: Works on macOS, Linux, and Windows
-- **Multiple Output Formats**: Standard, JSON, and verbose modes
-- **Color-Coded Output**: Easy-to-read terminal output with intuitive colors
+## 📋 Table of Contents
 
-## Installation 📦
+- [🚀 Quick Start](#-quick-start)
+- [✨ Key Features](#-key-features)
+- [📦 Installation](#-installation)
+- [🚀 Usage](#-usage)
+- [🎛️ Command Options](#️-command-options)
+- [📝 Examples](#-examples)
+- [🎨 Output Format](#-output-format)
+- [📋 Requirements](#-requirements)
+- [🔨 Building from Source](#-building-from-source)
+- [🤝 Contributing](#-contributing)
+- [🔐 Security](#-security)
+- [📈 Project Status](#-project-status)
+- [📊 Performance & Compatibility](#-performance--compatibility)
+- [🗺️ Roadmap](#️-roadmap)
+- [📄 License](#-license)
 
-### Using Homebrew (macOS/Linux)
+## 🚀 Quick Start
 
 ```bash
-# Add the tap and install
+# Install via Homebrew (macOS/Linux)
+brew tap polidog/tap && brew install kilar
+
+# Install via Cargo
+cargo install kilar
+
+# Quick usage
+kilar check 3000        # Check if port 3000 is in use
+kilar kill 3000         # Kill process on port 3000
+kilar list              # List all ports in use
+```
+
+## ✨ Key Features
+
+### 🔍 **Smart Port Detection**
+- **Lightning-fast port checking** - Instantly see if a port is in use and which process owns it
+- **Protocol support** - Works with both TCP and UDP protocols
+- **Detailed process information** - View PID, process name, and command line
+
+### ⚡ **Safe Process Management** 
+- **Graceful termination** - Kill processes with built-in safety confirmations
+- **Force kill option** - Override confirmations when needed
+- **Interactive selection** - Choose multiple processes to terminate with an intuitive UI
+
+### 📊 **Comprehensive Listing**
+- **Port range filtering** - View specific port ranges (e.g., 3000-4000)
+- **Process name filtering** - Find ports by application name
+- **Flexible sorting** - Sort by port, PID, or process name
+
+### 🎨 **Developer-Friendly Output**
+- **Color-coded terminal output** - Easy-to-read with intuitive color schemes
+- **JSON export** - Perfect for scripting and automation
+- **Verbose mode** - Get detailed information when troubleshooting
+
+### 🌍 **Cross-Platform & Modern**
+- **Universal compatibility** - Works on macOS, Linux, and Windows
+- **Multiple installation methods** - Homebrew, Cargo, or from source
+- **Zero dependencies** - Single binary with no runtime requirements
+
+## 📦 Installation
+
+### 🍺 Homebrew (Recommended for macOS/Linux)
+
+```bash
+# Add tap and install
 brew tap polidog/tap
 brew install kilar
 
-# Or install directly
+# Or one-liner
 brew install polidog/tap/kilar
 ```
 
-### Using cargo
+### 📦 Cargo (Universal)
 
 ```bash
+# Install from crates.io
 cargo install kilar
+
+# Install from source
+cargo install --git https://github.com/polidog/kilar.git
 ```
 
-### From source
+### 📥 Binary Downloads
+
+Download pre-built binaries from the [releases page](https://github.com/polidog/kilar/releases):
+
+- **macOS** (Intel): `kilar-x86_64-apple-darwin.tar.gz`
+- **macOS** (Apple Silicon): `kilar-aarch64-apple-darwin.tar.gz`
+- **Linux** (x86_64): `kilar-x86_64-unknown-linux-gnu.tar.gz`
+- **Linux** (ARM64): `kilar-aarch64-unknown-linux-gnu.tar.gz`
+- **Windows**: `kilar-x86_64-pc-windows-msvc.tar.gz`
+
+### 🔨 From Source
 
 ```bash
 git clone https://github.com/polidog/kilar.git
@@ -39,6 +110,8 @@ cd kilar
 cargo build --release
 sudo cp target/release/kilar /usr/local/bin/
 ```
+
+> **Note**: Requires [Rust](https://rustup.rs/) 1.70 or later
 
 ## Usage 🚀
 
@@ -213,28 +286,77 @@ cargo test
 cargo install --path .
 ```
 
-### CI/CD Status
+## 🤝 Contributing
 
+We welcome contributions! Here's how you can help:
+
+- 🐛 [Report bugs](https://github.com/polidog/kilar/issues/new?labels=bug)
+- 💡 [Request features](https://github.com/polidog/kilar/issues/new?labels=enhancement)
+- 📖 Improve documentation
+- 🔧 Submit pull requests
+
+See our [Contributing Guide](CONTRIBUTING.md) for detailed instructions.
+
+## 🔐 Security
+
+`kilar` handles system processes and requires appropriate permissions:
+
+- **Process visibility**: Requires read access to system process information
+- **Process termination**: May require elevated privileges (sudo/administrator) for some processes
+- **Network data**: Accesses network connection information through system commands
+
+For security issues, please see our [Security Policy](https://github.com/polidog/kilar/security).
+
+## 📈 Project Status
+
+### 🏗️ Development Status
+- **Stable**: Core functionality is production-ready
+- **Active**: Regular updates and maintenance
+- **Cross-platform**: Tested on macOS, Linux, and Windows
+
+### 🚀 CI/CD Status
 [![CI](https://github.com/polidog/kilar/actions/workflows/ci.yml/badge.svg)](https://github.com/polidog/kilar/actions/workflows/ci.yml)
 
-**Note**: Windows CI tests are currently disabled due to environment instability. The project fully supports Windows platform, but automated testing is temporarily limited to macOS and Linux environments. Windows builds are still generated and released.
+> **Note**: Windows CI tests are currently disabled due to environment instability. The project fully supports Windows platform, but automated testing is temporarily limited to macOS and Linux environments. Windows builds are still generated and released.
 
-## License 📄
+## 📊 Performance & Compatibility
 
-This project is licensed under the MIT License.
+| Platform | Min Version | Status | Notes |
+|----------|-------------|--------|--------|
+| **macOS** | 10.15+ | ✅ Full Support | Intel & Apple Silicon |
+| **Linux** | Any modern | ✅ Full Support | Requires `lsof` |
+| **Windows** | 10+ | ✅ Full Support | Uses `netstat` |
 
-## Author 👤
+## 🗺️ Roadmap
 
-**polidog**
+- [ ] **v0.2.0**: Configuration file support
+- [ ] **v0.3.0**: Plugin system for custom output formats
+- [ ] **v0.4.0**: Network interface filtering
+- [ ] **v1.0.0**: Stable API and comprehensive documentation
 
-- GitHub: [@polidog](https://github.com/polidog)
+## 📄 License
 
-## Acknowledgments 🙏
+This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
 
-- Built with Rust 🦀
-- Uses `tokio` for async operations
-- Terminal UI powered by `dialoguer` and `colored`
+## 👥 Authors & Contributors
+
+**🚀 Maintainer**: [polidog](https://github.com/polidog)
+
+Thanks to all [contributors](https://github.com/polidog/kilar/contributors) who help make this project better!
+
+## 🙏 Acknowledgments
+
+- **🦀 Built with Rust** - For memory safety and performance
+- **⚡ Tokio** - Async runtime for efficient I/O operations  
+- **🎨 Terminal UI** - Powered by `dialoguer` and `colored`
+- **🏗️ Cross-compilation** - Thanks to GitHub Actions and `cross`
+
+## 🔗 Related Projects
+
+- [lsof](https://github.com/lsof-org/lsof) - List open files (Unix)
+- [netstat](https://docs.microsoft.com/en-us/windows-server/administration/windows-commands/netstat) - Network statistics (Windows)
+- [ss](https://man7.org/linux/man-pages/man8/ss.8.html) - Socket statistics (Linux)
 
 ---
 
-**Note**: This tool requires appropriate permissions to view and terminate processes. Some system processes may require elevated privileges (sudo/administrator).
+> **⚠️ Important**: This tool requires appropriate permissions to view and terminate processes. Some system processes may require elevated privileges (sudo/administrator).
