@@ -1,7 +1,7 @@
 use std::fmt;
 
 /// Error types for the kilar application.
-/// 
+///
 /// This enum represents all possible errors that can occur during
 /// the execution of kilar commands.
 #[derive(Debug, Clone)]
@@ -31,17 +31,27 @@ impl fmt::Display for Error {
             Error::ParseError(msg) => write!(f, "Parse error: {}", msg),
             Error::PortNotFound(port) => write!(f, "Port {} is not in use", port),
             Error::PermissionDenied(msg) => {
-                write!(f, "Permission denied: {}. Try running with 'sudo' for system processes", msg)
-            },
+                write!(
+                    f,
+                    "Permission denied: {}. Try running with 'sudo' for system processes",
+                    msg
+                )
+            }
             Error::ProcessNotFound(pid) => write!(f, "Process with PID {} not found", pid),
-            Error::InvalidPort(msg) => write!(f, "Invalid port: {}. Port must be between 1 and 65535", msg),
+            Error::InvalidPort(msg) => {
+                write!(f, "Invalid port: {}. Port must be between 1 and 65535", msg)
+            }
             Error::CommandFailed(msg) => {
                 if msg.contains("lsof") || msg.contains("netstat") {
-                    write!(f, "Command failed: {}. Make sure required system tools are installed", msg)
+                    write!(
+                        f,
+                        "Command failed: {}. Make sure required system tools are installed",
+                        msg
+                    )
                 } else {
                     write!(f, "Command execution failed: {}", msg)
                 }
-            },
+            }
             Error::Other(msg) => write!(f, "{}", msg),
         }
     }
@@ -74,7 +84,7 @@ impl From<dialoguer::Error> for Error {
 }
 
 /// A specialized `Result` type for kilar operations.
-/// 
+///
 /// This is a convenience type alias for `std::result::Result<T, Error>`
 /// where the error type is always `kilar::Error`.
 pub type Result<T> = std::result::Result<T, Error>;
@@ -89,7 +99,10 @@ mod tests {
         assert_eq!(err.to_string(), "Port 8080 is not in use");
 
         let err = Error::InvalidPort("65536".to_string());
-        assert_eq!(err.to_string(), "Invalid port: 65536. Port must be between 1 and 65535");
+        assert_eq!(
+            err.to_string(),
+            "Invalid port: 65536. Port must be between 1 and 65535"
+        );
 
         let err = Error::ProcessNotFound(1234);
         assert_eq!(err.to_string(), "Process with PID 1234 not found");
@@ -105,10 +118,14 @@ mod tests {
     #[test]
     fn test_command_failed_special_cases() {
         let err = Error::CommandFailed("lsof not found".to_string());
-        assert!(err.to_string().contains("Make sure required system tools are installed"));
+        assert!(err
+            .to_string()
+            .contains("Make sure required system tools are installed"));
 
         let err = Error::CommandFailed("netstat error".to_string());
-        assert!(err.to_string().contains("Make sure required system tools are installed"));
+        assert!(err
+            .to_string()
+            .contains("Make sure required system tools are installed"));
 
         let err = Error::CommandFailed("generic error".to_string());
         assert_eq!(err.to_string(), "Command execution failed: generic error");

@@ -15,7 +15,7 @@ impl KillCommand {
     ) -> Result<()> {
         let port_manager = PortManager::new();
         let process_manager = ProcessManager::new();
-        
+
         match port_manager.check_port(port, protocol).await? {
             Some(process_info) => {
                 if !force && !json {
@@ -26,12 +26,12 @@ impl KillCommand {
                         protocol.to_uppercase().blue(),
                         port.to_string().yellow()
                     );
-                    
+
                     let confirmed = Confirm::new()
                         .with_prompt(prompt)
                         .default(false)
                         .interact()?;
-                    
+
                     if !confirmed {
                         if !quiet {
                             println!("{} Operation cancelled", "×".yellow());
@@ -39,7 +39,7 @@ impl KillCommand {
                         return Ok(());
                     }
                 }
-                
+
                 match process_manager.kill_process(process_info.pid).await {
                     Ok(()) => {
                         if json {
@@ -54,14 +54,18 @@ impl KillCommand {
                             });
                             println!("{}", serde_json::to_string_pretty(&json_output)?);
                         } else if !quiet {
-                            println!("{} Killed process {} (PID: {})", 
-                                "✓".green(), process_info.name.yellow(), process_info.pid.to_string().cyan());
+                            println!(
+                                "{} Killed process {} (PID: {})",
+                                "✓".green(),
+                                process_info.name.yellow(),
+                                process_info.pid.to_string().cyan()
+                            );
                             if verbose {
                                 println!("  Process was using port {}", port.to_string().yellow());
                                 println!("  Protocol: {}", protocol.to_uppercase().blue());
                             }
                         }
-                    },
+                    }
                     Err(e) => {
                         if json {
                             let json_output = serde_json::json!({
@@ -81,7 +85,7 @@ impl KillCommand {
                         return Err(e);
                     }
                 }
-            },
+            }
             None => {
                 let error_msg = format!("Port {}:{} is not in use", protocol.to_uppercase(), port);
                 if json {
@@ -98,7 +102,7 @@ impl KillCommand {
                 return Err(crate::Error::PortNotFound(port));
             }
         }
-        
+
         Ok(())
     }
 }
