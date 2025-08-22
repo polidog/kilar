@@ -15,11 +15,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        # NOTE: Windows テストを一時的に無効化
-        # 理由: Windows CI環境でのテストが不安定なため
-        # TODO: Windows環境の安定性が確認され次第再有効化
-        # 再有効化時は以下のように修正: os: [ubuntu-latest, windows-latest, macos-latest]
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
         rust: [stable]
 
     steps:
@@ -76,13 +72,9 @@ jobs:
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             binary_name: kilar
-          # NOTE: Windows ビルドを一時的に無効化
-          # 理由: Windows CI環境でのテストが不安定なため、ビルドも含めて無効化
-          # TODO: Windows環境の安定性が確認され次第再有効化
-          # 再有効化時は以下の行のコメントを解除:
-          # - os: windows-latest
-          #   target: x86_64-pc-windows-msvc
-          #   binary_name: kilar.exe
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            binary_name: kilar.exe
           - os: macos-latest
             target: x86_64-apple-darwin
             binary_name: kilar

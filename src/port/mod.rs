@@ -284,17 +284,35 @@ impl PortManager {
 
         for line in output.lines() {
             let fields: Vec<&str> = line.split_whitespace().collect();
-            if fields.len() < 5 {
+            if fields.len() < 4 {
+                continue;
+            }
+
+            // Skip header lines and empty lines
+            if !fields[0].to_uppercase().starts_with("TCP") && !fields[0].to_uppercase().starts_with("UDP") {
                 continue;
             }
 
             let protocol = fields[0].to_lowercase();
             let local_address = fields[1];
-            let state = fields[3];
-            let pid_str = fields[4];
+            
+            // TCPとUDPで異なるフィールド構造に対応
+            let (state, pid_str) = if protocol.starts_with("tcp") {
+                // TCP: Proto Local Foreign State PID
+                if fields.len() < 5 {
+                    continue;
+                }
+                (fields[3], fields[4])
+            } else {
+                // UDP: Proto Local Foreign PID (no state)
+                if fields.len() < 4 {
+                    continue;
+                }
+                ("LISTENING", fields[3]) // UDPは常にリスニング扱い
+            };
 
             // リスニング状態のみ処理
-            if state != "LISTENING" {
+            if protocol.starts_with("tcp") && state != "LISTENING" {
                 continue;
             }
 
@@ -483,28 +501,20 @@ impl PortManager {
 
         let parts: Vec<&str> = command_line.split_whitespace().collect();
         if let Some(first_part) = parts.first() {
-            // パスから実行ファイル名だけを抽出（Windows/Unix両対応）
-            #[cfg(target_os = "windows")]
-            let separator = '\\';
-            #[cfg(not(target_os = "windows"))]
-            let separator = '/';
-
-            if let Some(name) = first_part.split(separator).next_back() {
-                // Windows環境では.exeを削除
-                #[cfg(target_os = "windows")]
-                {
-                    if name.to_lowercase().ends_with(".exe") {
-                        name[..name.len() - 4].to_string()
-                    } else {
-                        name.to_string()
-                    }
-                }
-                #[cfg(not(target_os = "windows"))]
-                {
-                    name.to_string()
-                }
+            // パスから実行ファイル名だけを抽出
+            let name = if cfg!(target_os = "windows") {
+                // Windowsの場合、両方のセパレータを考慮
+                first_part.split(&['\\', '/'][..]).last().unwrap_or(first_part)
             } else {
-                first_part.to_string()
+                // Unix系の場合
+                first_part.split('/').last().unwrap_or(first_part)
+            };
+
+            // Windows環境では.exeを削除
+            if cfg!(target_os = "windows") && name.to_lowercase().ends_with(".exe") {
+                name[..name.len() - 4].to_string()
+            } else {
+                name.to_string()
             }
         } else {
             "Unknown".to_string()
@@ -590,19 +600,21 @@ impl PortManager {
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        for line in stdout.lines().skip(1) {
-            // ヘッダーをスキップ
+        // Skip the first two lines (empty line and header)
+        for line in stdout.lines().skip(2) {
             if line.trim().is_empty() {
                 continue;
             }
             let fields: Vec<&str> = line.split(',').collect();
+            // Format: Node,CommandLine,ExecutablePath
             if fields.len() >= 3 {
+                // fields[0] is the node name (computer name)
                 let command_line = fields[1].trim();
                 let executable_path = fields[2].trim();
 
-                if !command_line.is_empty() && command_line != "NULL" {
+                if !command_line.is_empty() && command_line != "NULL" && command_line != "(null)" {
                     return Ok(command_line.to_string());
-                } else if !executable_path.is_empty() && executable_path != "NULL" {
+                } else if !executable_path.is_empty() && executable_path != "NULL" && executable_path != "(null)" {
                     return Ok(executable_path.to_string());
                 }
             }
