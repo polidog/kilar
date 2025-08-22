@@ -31,7 +31,7 @@
 
 ```bash
 # Install via Homebrew (macOS/Linux)
-brew tap polidog/tap && brew install kilar
+brew tap polidog/kilar && brew install kilar
 
 # Install via Cargo
 cargo install kilar
@@ -75,11 +75,11 @@ kilar list              # List all ports in use
 
 ```bash
 # Add tap and install
-brew tap polidog/tap
+brew tap polidog/kilar
 brew install kilar
 
 # Or one-liner
-brew install polidog/tap/kilar
+brew install polidog/kilar/kilar
 ```
 
 ### 📦 Cargo (Universal)
@@ -310,9 +310,10 @@ For security issues, please see our [Security Policy](https://github.com/polidog
 ## 📈 Project Status
 
 ### 🏗️ Development Status
-- **Stable**: Core functionality is production-ready
+- **Stable**: Core functionality is production-ready with v0.1.1 released
 - **Active**: Regular updates and maintenance
 - **Cross-platform**: Tested on macOS, Linux, and Windows
+- **Package Distribution**: Available via Homebrew, Cargo, and GitHub Releases
 
 ### 🚀 CI/CD Status
 [![CI](https://github.com/polidog/kilar/actions/workflows/ci.yml/badge.svg)](https://github.com/polidog/kilar/actions/workflows/ci.yml)
@@ -329,6 +330,11 @@ For security issues, please see our [Security Policy](https://github.com/polidog
 
 ## 🗺️ Roadmap
 
+### ✅ Completed (v0.1.x)
+- [x] **v0.1.0**: Core port management functionality
+- [x] **v0.1.1**: Improved Homebrew distribution and bug fixes
+
+### 🔮 Future Releases
 - [ ] **v0.2.0**: Configuration file support
 - [ ] **v0.3.0**: Plugin system for custom output formats
 - [ ] **v0.4.0**: Network interface filtering
@@ -351,11 +357,17 @@ Thanks to all [contributors](https://github.com/polidog/kilar/contributors) who 
 - **🎨 Terminal UI** - Powered by `dialoguer` and `colored`
 - **🏗️ Cross-compilation** - Thanks to GitHub Actions and `cross`
 
-## 🔗 Related Projects
+## 🔗 Related Projects & Resources
 
+### 🛠️ System Tools Used
 - [lsof](https://github.com/lsof-org/lsof) - List open files (Unix)
 - [netstat](https://docs.microsoft.com/en-us/windows-server/administration/windows-commands/netstat) - Network statistics (Windows)
 - [ss](https://man7.org/linux/man-pages/man8/ss.8.html) - Socket statistics (Linux)
+
+### 📦 Distribution Channels
+- [Homebrew Tap](https://github.com/polidog/homebrew-kilar) - Official Homebrew formula
+- [Crates.io](https://crates.io/crates/kilar) - Rust package registry
+- [GitHub Releases](https://github.com/polidog/kilar/releases) - Binary downloads
 
 ---
 
