@@ -54,7 +54,6 @@ async fn run() -> Result<()> {
                 kill_mode,
                 cli.quiet,
                 cli.json,
-                cli.verbose,
             )
             .await?;
         }

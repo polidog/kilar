@@ -5,7 +5,6 @@ use dialoguer::{Confirm, MultiSelect};
 pub struct ListCommand;
 
 impl ListCommand {
-    #[allow(clippy::too_many_arguments)]
     pub async fn execute(
         ports_range: Option<String>,
         filter: Option<String>,
@@ -14,7 +13,6 @@ impl ListCommand {
         kill: bool,
         quiet: bool,
         json: bool,
-        verbose: bool,
     ) -> Result<()> {
         let port_manager = PortManager::new();
 
@@ -52,7 +50,7 @@ impl ListCommand {
             }
         } else {
             if !quiet && !kill {
-                Self::print_table(&processes, verbose);
+                Self::print_table(&processes);
             }
 
             // 対話的kill機能
@@ -94,50 +92,29 @@ impl ListCommand {
         }
     }
 
-    fn print_table(processes: &[crate::port::ProcessInfo], verbose: bool) {
+    fn print_table(processes: &[crate::port::ProcessInfo]) {
         println!("{}", "Ports in use:".bold().green());
         println!();
 
-        if verbose {
+        println!(
+            "{:<8} {:<12} {:<20} {:<15} {}",
+            "PORT".cyan().bold(),
+            "PROTOCOL".cyan().bold(),
+            "PROCESS".cyan().bold(),
+            "PID".cyan().bold(),
+            "COMMAND".cyan().bold()
+        );
+        println!("{}", "-".repeat(80));
+
+        for process in processes {
             println!(
                 "{:<8} {:<12} {:<20} {:<15} {}",
-                "PORT".cyan().bold(),
-                "PROTOCOL".cyan().bold(),
-                "PROCESS".cyan().bold(),
-                "PID".cyan().bold(),
-                "COMMAND".cyan().bold()
+                process.port.to_string().white(),
+                process.protocol.to_uppercase().green(),
+                process.name.yellow(),
+                process.pid.to_string().blue(),
+                process.command.truncate_with_ellipsis(50).dimmed()
             );
-            println!("{}", "-".repeat(80));
-
-            for process in processes {
-                println!(
-                    "{:<8} {:<12} {:<20} {:<15} {}",
-                    process.port.to_string().white(),
-                    process.protocol.to_uppercase().green(),
-                    process.name.yellow(),
-                    process.pid.to_string().blue(),
-                    process.command.truncate_with_ellipsis(50).dimmed()
-                );
-            }
-        } else {
-            println!(
-                "{:<8} {:<12} {:<20} {}",
-                "PORT".cyan().bold(),
-                "PROTOCOL".cyan().bold(),
-                "PROCESS".cyan().bold(),
-                "PID".cyan().bold()
-            );
-            println!("{}", "-".repeat(50));
-
-            for process in processes {
-                println!(
-                    "{:<8} {:<12} {:<20} {}",
-                    process.port.to_string().white(),
-                    process.protocol.to_uppercase().green(),
-                    process.name.yellow(),
-                    process.pid.to_string().blue()
-                );
-            }
         }
 
         println!();
@@ -149,9 +126,6 @@ impl ListCommand {
     }
 
     async fn interactive_kill(processes: Vec<crate::port::ProcessInfo>, quiet: bool) -> Result<()> {
-        // killモードでは重要な操作のため、常に詳細テーブルを表示（--quietに関係なく）
-        Self::print_table(&processes, true);
-        println!();
         if !quiet {
             println!("{}", "Select processes to kill:".bold().yellow());
             println!();
