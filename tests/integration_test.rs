@@ -16,13 +16,13 @@ fn test_validation_functions() {
     // Test port validation
     assert!(validate_port(80).is_ok());
     assert!(validate_port(0).is_err());
-    
+
     // Test protocol validation
     assert!(validate_protocol("tcp").is_ok());
     assert!(validate_protocol("udp").is_ok());
     assert!(validate_protocol("all").is_ok());
     assert!(validate_protocol("invalid").is_err());
-    
+
     // Test sort option validation
     assert!(validate_sort_option("port").is_ok());
     assert!(validate_sort_option("pid").is_ok());
@@ -35,10 +35,10 @@ fn test_error_types() {
     let error = Error::PortNotFound(8080);
     assert!(error.to_string().contains("8080"));
     assert!(error.to_string().contains("not in use"));
-    
+
     let error = Error::InvalidPort("test".to_string());
     assert!(error.to_string().contains("Invalid port"));
-    
+
     let error = Error::ProcessNotFound(1234);
     assert!(error.to_string().contains("1234"));
     assert!(error.to_string().contains("not found"));
@@ -56,9 +56,10 @@ async fn test_list_command_port_range_parsing() {
         false,
         true,
         true,
-        false
-    ).await;
-    
+        false,
+    )
+    .await;
+
     // Should succeed even if no ports are found in range
     assert!(result.is_ok());
 }
@@ -67,16 +68,17 @@ async fn test_list_command_port_range_parsing() {
 async fn test_list_command_invalid_port_range() {
     // Test invalid port range
     let result = ListCommand::execute(
-        Some("5000-3000".to_string()),  // Invalid: start > end
+        Some("5000-3000".to_string()), // Invalid: start > end
         None,
         "port",
         "tcp",
         false,
         true,
         true,
-        false
-    ).await;
-    
+        false,
+    )
+    .await;
+
     assert!(result.is_err());
 }
 
@@ -86,7 +88,7 @@ fn test_error_chain() {
     let io_error = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "test");
     let our_error: Error = io_error.into();
     assert!(matches!(our_error, Error::IoError(_)));
-    
+
     // Test that our error implements std::error::Error
     let error: Box<dyn std::error::Error> = Box::new(Error::Other("test".to_string()));
     assert_eq!(error.to_string(), "test");
