@@ -11,6 +11,7 @@ impl KillCommand {
         force: bool,
         quiet: bool,
         json: bool,
+        verbose: bool,
     ) -> Result<()> {
         let port_manager = PortManager::new();
         let process_manager = ProcessManager::new();
@@ -19,11 +20,11 @@ impl KillCommand {
             Some(process_info) => {
                 if !force && !json {
                     let prompt = format!(
-                        "{}:{} を使用しているプロセス {} (PID: {}) を終了しますか?",
-                        protocol.to_uppercase(),
-                        port,
-                        process_info.name,
-                        process_info.pid
+                        "Kill process {} (PID: {}) using {}:{}?",
+                        process_info.name.yellow(),
+                        process_info.pid.to_string().cyan(),
+                        protocol.to_uppercase().blue(),
+                        port.to_string().yellow()
                     );
                     
                     let confirmed = Confirm::new()
@@ -33,7 +34,7 @@ impl KillCommand {
                     
                     if !confirmed {
                         if !quiet {
-                            println!("{} 操作がキャンセルされました", "×".yellow());
+                            println!("{} Operation cancelled", "×".yellow());
                         }
                         return Ok(());
                     }
@@ -53,8 +54,12 @@ impl KillCommand {
                             });
                             println!("{}", serde_json::to_string_pretty(&json_output)?);
                         } else if !quiet {
-                            println!("{} プロセス {} (PID: {}) を終了しました", 
-                                "✓".green(), process_info.name, process_info.pid);
+                            println!("{} Killed process {} (PID: {})", 
+                                "✓".green(), process_info.name.yellow(), process_info.pid.to_string().cyan());
+                            if verbose {
+                                println!("  Process was using port {}", port.to_string().yellow());
+                                println!("  Protocol: {}", protocol.to_uppercase().blue());
+                            }
                         }
                     },
                     Err(e) => {
@@ -71,14 +76,14 @@ impl KillCommand {
                             });
                             println!("{}", serde_json::to_string_pretty(&json_output)?);
                         } else {
-                            eprintln!("{} プロセスの終了に失敗しました: {}", "×".red(), e);
+                            eprintln!("{} Failed to kill process: {}", "×".red(), e);
                         }
                         return Err(e);
                     }
                 }
             },
             None => {
-                let error_msg = format!("ポート {}:{} は使用されていません", protocol.to_uppercase(), port);
+                let error_msg = format!("Port {}:{} is not in use", protocol.to_uppercase(), port);
                 if json {
                     let json_output = serde_json::json!({
                         "port": port,

@@ -85,7 +85,7 @@ impl ProcessManager {
         if cfg!(target_os = "windows") {
             let output = TokioCommand::new("tasklist")
                 .arg("/FI")
-                .arg(&format!("PID eq {}", pid))
+                .arg(format!("PID eq {}", pid))
                 .arg("/FO")
                 .arg("CSV")
                 .arg("/NH")
@@ -121,7 +121,7 @@ impl ProcessManager {
         if cfg!(target_os = "windows") {
             let output = TokioCommand::new("tasklist")
                 .arg("/FI")
-                .arg(&format!("PID eq {}", pid))
+                .arg(format!("PID eq {}", pid))
                 .arg("/FO")
                 .arg("CSV")
                 .arg("/NH")
@@ -133,7 +133,7 @@ impl ProcessManager {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 if let Some(line) = stdout.lines().next() {
                     let fields: Vec<&str> = line.split(',').collect();
-                    if fields.len() > 0 {
+                    if !fields.is_empty() {
                         let name = fields[0].trim_matches('"').to_string();
                         return Ok((name.clone(), name));
                     }
