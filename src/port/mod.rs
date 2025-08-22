@@ -560,6 +560,12 @@ impl PortManager {
     }
 
     #[cfg(target_os = "windows")]
+    async fn get_process_command(&self, pid: u32) -> Result<String> {
+        // Windows version: delegate to get_process_command_wmic
+        self.get_process_command_wmic(pid).await
+    }
+
+    #[cfg(target_os = "windows")]
     async fn get_process_info_windows(&self, pid: u32) -> Result<(String, String)> {
         // Check if tasklist is available first
         if !self.is_command_available("tasklist").await {
