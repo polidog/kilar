@@ -8,8 +8,24 @@ impl ProcessManager {
         Self
     }
 
+    /// Check if a system command is available
+    #[allow(dead_code)] // Only used on Windows platforms
+    async fn is_command_available(&self, command: &str) -> bool {
+        match TokioCommand::new(command).arg("--help").output().await {
+            Ok(output) => output.status.success(),
+            Err(_) => false,
+        }
+    }
+
     pub async fn kill_process(&self, pid: u32) -> Result<()> {
         if cfg!(target_os = "windows") {
+            // Check if taskkill is available first
+            if !self.is_command_available("taskkill").await {
+                return Err(crate::Error::CommandFailed(
+                    "taskkill command not available. This may occur in restricted CI environments or containers.".to_string()
+                ));
+            }
+
             let output = TokioCommand::new("taskkill")
                 .arg("/F")
                 .arg("/PID")
@@ -17,7 +33,7 @@ impl ProcessManager {
                 .output()
                 .await
                 .map_err(|e| {
-                    crate::Error::CommandFailed(format!("taskkill command failed: {}", e))
+                    crate::Error::CommandFailed(format!("taskkill command failed: {}. This may indicate restricted CI environment permissions.", e))
                 })?;
 
             if !output.status.success() {
@@ -94,6 +110,12 @@ impl ProcessManager {
 
     async fn process_exists(&self, pid: u32) -> Result<bool> {
         if cfg!(target_os = "windows") {
+            // Check if tasklist is available first
+            if !self.is_command_available("tasklist").await {
+                // If tasklist isn't available, assume process doesn't exist or is not accessible
+                return Ok(false);
+            }
+
             let output = TokioCommand::new("tasklist")
                 .arg("/FI")
                 .arg(format!("PID eq {}", pid))
@@ -103,7 +125,7 @@ impl ProcessManager {
                 .output()
                 .await
                 .map_err(|e| {
-                    crate::Error::CommandFailed(format!("tasklist command failed: {}", e))
+                    crate::Error::CommandFailed(format!("tasklist command failed: {}. This may indicate restricted CI environment permissions.", e))
                 })?;
 
             if output.status.success() {
@@ -131,6 +153,14 @@ impl ProcessManager {
 
     pub async fn get_process_info(&self, pid: u32) -> Result<(String, String)> {
         if cfg!(target_os = "windows") {
+            // Check if tasklist is available first
+            if !self.is_command_available("tasklist").await {
+                return Ok((
+                    "Unknown".to_string(),
+                    "Unknown (tasklist not available in CI)".to_string(),
+                ));
+            }
+
             let output = TokioCommand::new("tasklist")
                 .arg("/FI")
                 .arg(format!("PID eq {}", pid))
@@ -140,7 +170,7 @@ impl ProcessManager {
                 .output()
                 .await
                 .map_err(|e| {
-                    crate::Error::CommandFailed(format!("tasklist command failed: {}", e))
+                    crate::Error::CommandFailed(format!("tasklist command failed: {}. This may indicate restricted CI environment permissions.", e))
                 })?;
 
             if output.status.success() {

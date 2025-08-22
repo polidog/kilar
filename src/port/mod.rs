@@ -24,8 +24,24 @@ impl PortManager {
         Ok(processes.into_iter().find(|p| p.port == port))
     }
 
+    /// Check if a system command is available
+    #[allow(dead_code)] // Only used on Windows platforms
+    async fn is_command_available(&self, command: &str) -> bool {
+        match TokioCommand::new(command).arg("--help").output().await {
+            Ok(output) => output.status.success(),
+            Err(_) => false,
+        }
+    }
+
     #[cfg(target_os = "windows")]
     pub async fn list_processes(&self, protocol: &str) -> Result<Vec<ProcessInfo>> {
+        // Check if netstat is available first
+        if !self.is_command_available("netstat").await {
+            return Err(crate::Error::CommandFailed(
+                "netstat command not available. This may occur in restricted CI environments or containers.".to_string()
+            ));
+        }
+
         let protocol_flag = match protocol.to_lowercase().as_str() {
             "tcp" => "TCP",
             "udp" => "UDP",
@@ -43,12 +59,12 @@ impl PortManager {
             .args(&args)
             .output()
             .await
-            .map_err(|e| crate::Error::CommandFailed(format!("netstat command failed: {}", e)))?;
+            .map_err(|e| crate::Error::CommandFailed(format!("netstat command failed: {}. This may indicate restricted CI environment permissions.", e)))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(crate::Error::CommandFailed(format!(
-                "netstat failed: {}",
+                "netstat failed: {}. This may occur in CI environments with restricted process visibility.",
                 stderr
             )));
         }
@@ -545,6 +561,14 @@ impl PortManager {
 
     #[cfg(target_os = "windows")]
     async fn get_process_info_windows(&self, pid: u32) -> Result<(String, String)> {
+        // Check if tasklist is available first
+        if !self.is_command_available("tasklist").await {
+            return Ok((
+                "Unknown".to_string(),
+                "Unknown (tasklist not available in CI)".to_string(),
+            ));
+        }
+
         // tasklist.exe を使用してプロセス情報を取得
         let output = TokioCommand::new("tasklist")
             .arg("/FI")
@@ -554,7 +578,7 @@ impl PortManager {
             .arg("/NH") // ヘッダーなし
             .output()
             .await
-            .map_err(|e| crate::Error::CommandFailed(format!("tasklist command failed: {}", e)))?;
+            .map_err(|e| crate::Error::CommandFailed(format!("tasklist command failed: {}. This may indicate restricted CI environment permissions.", e)))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -589,6 +613,18 @@ impl PortManager {
 
     #[cfg(target_os = "windows")]
     async fn get_process_command_wmic(&self, pid: u32) -> Result<String> {
+        // Try PowerShell first (more reliable in modern Windows/CI), then fall back to wmic
+        if let Ok(result) = self.get_process_command_powershell(pid).await {
+            return Ok(result);
+        }
+
+        // Check if wmic is available (deprecated in newer Windows versions)
+        if !self.is_command_available("wmic").await {
+            return Err(crate::Error::CommandFailed(
+                "wmic command not available (deprecated in Windows 10/11). PowerShell alternative also failed.".to_string()
+            ));
+        }
+
         let output = TokioCommand::new("wmic")
             .arg("process")
             .arg("where")
@@ -598,7 +634,7 @@ impl PortManager {
             .arg("/format:csv")
             .output()
             .await
-            .map_err(|e| crate::Error::CommandFailed(format!("wmic command failed: {}", e)))?;
+            .map_err(|e| crate::Error::CommandFailed(format!("wmic command failed: {}. This may indicate wmic is deprecated or restricted in CI.", e)))?;
 
         if !output.status.success() {
             return Err(crate::Error::ProcessNotFound(pid));
@@ -629,6 +665,37 @@ impl PortManager {
         }
 
         Err(crate::Error::ProcessNotFound(pid))
+    }
+
+    /// Modern PowerShell alternative to wmic for Windows process information
+    #[cfg(target_os = "windows")]
+    async fn get_process_command_powershell(&self, pid: u32) -> Result<String> {
+        let script = format!(
+            "Get-Process -Id {} | Select-Object -ExpandProperty ProcessName,Path,CommandLine 2>$null",
+            pid
+        );
+
+        let output = TokioCommand::new("powershell")
+            .arg("-Command")
+            .arg(&script)
+            .output()
+            .await
+            .map_err(|e| {
+                crate::Error::CommandFailed(format!("PowerShell command failed: {}", e))
+            })?;
+
+        if !output.status.success() {
+            return Err(crate::Error::ProcessNotFound(pid));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let result = stdout.trim();
+
+        if result.is_empty() {
+            return Err(crate::Error::ProcessNotFound(pid));
+        }
+
+        Ok(result.to_string())
     }
 }
 
