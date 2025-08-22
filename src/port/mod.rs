@@ -205,6 +205,7 @@ impl PortManager {
             let command = fields[0];
             let pid_str = fields[1];
             let type_field = fields[4];
+            let protocol_field = if fields.len() > 7 { fields[7] } else { "" };
             let node = fields[8];
 
             // TCPまたはUDPポートのみ処理
@@ -233,14 +234,22 @@ impl PortManager {
                 "*".to_string()
             };
 
-            // NAME列（node）からプロトコルを判定
-            let protocol = if node.contains("TCP") {
+            // プロトコルを複数の列から判定
+            let protocol = if protocol_field.contains("TCP") || protocol_field.contains("tcp") {
                 "tcp"
-            } else if node.contains("UDP") {
+            } else if protocol_field.contains("UDP") || protocol_field.contains("udp") {
+                "udp"
+            } else if node.contains("TCP") || node.contains("tcp") {
+                "tcp"
+            } else if node.contains("UDP") || node.contains("udp") {
+                "udp"
+            } else if type_field.contains("TCP") || type_field.contains("tcp") {
+                "tcp"
+            } else if type_field.contains("UDP") || type_field.contains("udp") {
                 "udp"
             } else {
-                // フォールバック：リクエストされたプロトコルを使用
-                _protocol
+                // lsofのデフォルト動作から推測：リスニングポートは通常TCP
+                "tcp"
             }
             .to_string();
 
