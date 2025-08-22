@@ -8,7 +8,6 @@ impl ProcessManager {
         Self
     }
 
-
     pub async fn kill_process(&self, pid: u32) -> Result<()> {
         self.kill_process_unix(pid).await
     }

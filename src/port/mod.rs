@@ -24,7 +24,6 @@ impl PortManager {
         Ok(processes.into_iter().find(|p| p.port == port))
     }
 
-
     pub async fn list_processes(&self, protocol: &str) -> Result<Vec<ProcessInfo>> {
         self.list_processes_unix(protocol).await
     }
@@ -237,7 +236,6 @@ impl PortManager {
         Ok(processes)
     }
 
-
     async fn parse_ss_output(&self, output: &str, _protocol: &str) -> Result<Vec<ProcessInfo>> {
         let mut processes = Vec::new();
 
@@ -406,8 +404,6 @@ impl PortManager {
             Err(crate::Error::ProcessNotFound(pid))
         }
     }
-
-
 }
 
 impl Default for PortManager {
