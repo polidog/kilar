@@ -491,7 +491,7 @@ impl PortManager {
             #[cfg(not(target_os = "windows"))]
             let separator = '/';
 
-            if let Some(name) = first_part.split(separator).last() {
+            if let Some(name) = first_part.split(separator).next_back() {
                 // Windows環境では.exeを削除
                 #[cfg(target_os = "windows")]
                 {
@@ -575,7 +575,7 @@ impl PortManager {
             if fields.len() >= 2 {
                 let image_name = fields[0].trim_matches('"');
                 let name = image_name.to_string();
-                
+
                 // 詳細なコマンド情報を取得するためにWMICを試行
                 match self.get_process_command_wmic(pid).await {
                     Ok(command) => Ok((name, command)),
@@ -607,7 +607,8 @@ impl PortManager {
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        for line in stdout.lines().skip(1) { // ヘッダーをスキップ
+        for line in stdout.lines().skip(1) {
+            // ヘッダーをスキップ
             if line.trim().is_empty() {
                 continue;
             }
@@ -615,7 +616,7 @@ impl PortManager {
             if fields.len() >= 3 {
                 let command_line = fields[1].trim();
                 let executable_path = fields[2].trim();
-                
+
                 if !command_line.is_empty() && command_line != "NULL" {
                     return Ok(command_line.to_string());
                 } else if !executable_path.is_empty() && executable_path != "NULL" {
