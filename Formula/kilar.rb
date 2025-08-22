@@ -6,21 +6,21 @@ class Kilar < Formula
 
   on_macos do
     if Hardware::CPU.intel?
-      url "https://github.com/polidog/kilar/releases/download/v#{version}/kilar-#{version}-x86_64-apple-darwin.tar.gz"
-      sha256 "PLACEHOLDER_SHA256_MACOS_INTEL"
+      url "https://github.com/polidog/kilar/releases/download/v#{version}/kilar-v#{version}-x86_64-apple-darwin.tar.gz"
+      sha256 "e59be0721183dc2c6652ff93eda50421ff08687a45202e9ec2a522ca272bdb60"
     else
-      url "https://github.com/polidog/kilar/releases/download/v#{version}/kilar-#{version}-aarch64-apple-darwin.tar.gz"
-      sha256 "PLACEHOLDER_SHA256_MACOS_ARM"
+      url "https://github.com/polidog/kilar/releases/download/v#{version}/kilar-v#{version}-aarch64-apple-darwin.tar.gz"
+      sha256 "3dc2839389c363915d037530e822e7d4c0fe9e74fa62565f63d591c0b21b58e4"
     end
   end
 
   on_linux do
     if Hardware::CPU.intel?
-      url "https://github.com/polidog/kilar/releases/download/v#{version}/kilar-#{version}-x86_64-unknown-linux-gnu.tar.gz"
-      sha256 "PLACEHOLDER_SHA256_LINUX_X86_64"
+      url "https://github.com/polidog/kilar/releases/download/v#{version}/kilar-v#{version}-x86_64-unknown-linux-gnu.tar.gz"
+      sha256 "ee07fb2101b32f5fcc712fee5c0a42a5060f4363267701459dabb032057d8abe"
     else
-      url "https://github.com/polidog/kilar/releases/download/v#{version}/kilar-#{version}-aarch64-unknown-linux-gnu.tar.gz"
-      sha256 "PLACEHOLDER_SHA256_LINUX_ARM"
+      # Linux ARM version is not currently available
+      odie "Linux ARM64 version is not available. Please use x86_64 version or build from source."
     end
   end
 
