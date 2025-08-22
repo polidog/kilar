@@ -25,42 +25,42 @@ impl PortManager {
         Ok(processes.into_iter().find(|p| p.port == port))
     }
 
+    #[cfg(target_os = "windows")]
     pub async fn list_processes(&self, protocol: &str) -> Result<Vec<ProcessInfo>> {
-        if cfg!(target_os = "windows") {
-            let protocol_flag = match protocol.to_lowercase().as_str() {
-                "tcp" => "TCP",
-                "udp" => "UDP",
-                "all" => "",
-                _ => "TCP",
-            };
+        let protocol_flag = match protocol.to_lowercase().as_str() {
+            "tcp" => "TCP",
+            "udp" => "UDP",
+            "all" => "",
+            _ => "TCP",
+        };
 
-            let mut args = vec!["-ano"];
-            if !protocol_flag.is_empty() {
-                args.push("-p");
-                args.push(protocol_flag);
-            }
-
-            let output = TokioCommand::new("netstat")
-                .args(&args)
-                .output()
-                .await
-                .map_err(|e| {
-                    crate::Error::CommandFailed(format!("netstat command failed: {}", e))
-                })?;
-
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                return Err(crate::Error::CommandFailed(format!(
-                    "netstat failed: {}",
-                    stderr
-                )));
-            }
-
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            self.parse_netstat_output(&stdout, protocol).await
-        } else {
-            self.list_processes_unix(protocol).await
+        let mut args = vec!["-ano"];
+        if !protocol_flag.is_empty() {
+            args.push("-p");
+            args.push(protocol_flag);
         }
+
+        let output = TokioCommand::new("netstat")
+            .args(&args)
+            .output()
+            .await
+            .map_err(|e| crate::Error::CommandFailed(format!("netstat command failed: {}", e)))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(crate::Error::CommandFailed(format!(
+                "netstat failed: {}",
+                stderr
+            )));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        self.parse_netstat_output(&stdout, protocol).await
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    pub async fn list_processes(&self, protocol: &str) -> Result<Vec<ProcessInfo>> {
+        self.list_processes_unix(protocol).await
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -239,6 +239,7 @@ impl PortManager {
         Ok(processes)
     }
 
+    #[cfg(target_os = "windows")]
     async fn parse_netstat_output(
         &self,
         output: &str,
