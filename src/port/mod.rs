@@ -289,13 +289,15 @@ impl PortManager {
             }
 
             // Skip header lines and empty lines
-            if !fields[0].to_uppercase().starts_with("TCP") && !fields[0].to_uppercase().starts_with("UDP") {
+            if !fields[0].to_uppercase().starts_with("TCP")
+                && !fields[0].to_uppercase().starts_with("UDP")
+            {
                 continue;
             }
 
             let protocol = fields[0].to_lowercase();
             let local_address = fields[1];
-            
+
             // TCPとUDPで異なるフィールド構造に対応
             let (state, pid_str) = if protocol.starts_with("tcp") {
                 // TCP: Proto Local Foreign State PID
@@ -504,7 +506,10 @@ impl PortManager {
             // パスから実行ファイル名だけを抽出
             let name = if cfg!(target_os = "windows") {
                 // Windowsの場合、両方のセパレータを考慮
-                first_part.split(&['\\', '/'][..]).next_back().unwrap_or(first_part)
+                first_part
+                    .split(&['\\', '/'][..])
+                    .next_back()
+                    .unwrap_or(first_part)
             } else {
                 // Unix系の場合
                 first_part.split('/').next_back().unwrap_or(first_part)
@@ -614,7 +619,10 @@ impl PortManager {
 
                 if !command_line.is_empty() && command_line != "NULL" && command_line != "(null)" {
                     return Ok(command_line.to_string());
-                } else if !executable_path.is_empty() && executable_path != "NULL" && executable_path != "(null)" {
+                } else if !executable_path.is_empty()
+                    && executable_path != "NULL"
+                    && executable_path != "(null)"
+                {
                     return Ok(executable_path.to_string());
                 }
             }
