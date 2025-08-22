@@ -202,6 +202,12 @@ cargo test
 cargo install --path .
 ```
 
+### CI/CD Status
+
+[![CI](https://github.com/polidog/kilar/actions/workflows/ci.yml/badge.svg)](https://github.com/polidog/kilar/actions/workflows/ci.yml)
+
+**Note**: Windows CI tests are currently disabled due to environment instability. The project fully supports Windows platform, but automated testing is temporarily limited to macOS and Linux environments. Windows builds are still generated and released.
+
 ## License 📄
 
 This project is licensed under the MIT License.

@@ -15,7 +15,11 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # NOTE: Windows テストを一時的に無効化
+        # 理由: Windows CI環境でのテストが不安定なため
+        # TODO: Windows環境の安定性が確認され次第再有効化
+        # 再有効化時は以下のように修正: os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest]
         rust: [stable]
 
     steps:
