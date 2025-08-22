@@ -33,6 +33,9 @@ pub enum Commands {
 
         #[arg(short, long, default_value = "tcp", help = "Protocol (tcp/udp)")]
         protocol: String,
+
+        #[arg(short, long, help = "Enable interactive mode with kill option")]
+        interactive: bool,
     },
 
     #[command(about = "Kill process using specified port")]

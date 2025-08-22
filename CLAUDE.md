@@ -107,9 +107,14 @@ make build-macos-arm
 ## コーディング規約
 
 ### Rust標準に従う
-- `cargo fmt`でのフォーマット
+- `cargo fmt`でのフォーマット（**コード変更時は必須実行**）
 - `cargo clippy`警告の解決必須
 - Rustdocコメント（公開API必須）
+
+### フォーマット要件
+- **重要**: コードを変更した場合は、必ず`cargo fmt --all`を実行してコードをフォーマットすること
+- フォーマット後の変更もコミットに含める
+- CI/CDパイプラインで`cargo fmt --check`による検証を実施
 
 ### エラーハンドリング
 - `src/error.rs`のカスタムError enum使用
