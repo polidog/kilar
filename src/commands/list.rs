@@ -137,16 +137,19 @@ impl ListCommand {
         }
 
         // MultiSelect用のオプション作成（詳細情報付き）
+        let port_manager = crate::port::PortManager::new();
         let options: Vec<String> = processes
             .iter()
             .map(|p| {
+                let display_path = port_manager.get_display_path(p);
                 format!(
-                    "{} ({}) - {} ({}) - {}",
+                    "Port {} ({}) | {} (PID:{}) | Path: {} | Cmd: {}",
                     p.port.to_string().white(),
                     p.protocol.to_uppercase().green(),
                     p.name.yellow(),
                     p.pid.to_string().blue(),
-                    p.command.truncate_with_ellipsis(60).dimmed()
+                    display_path.truncate_with_ellipsis(45).cyan(),
+                    p.command.truncate_with_ellipsis(40).dimmed()
                 )
             })
             .collect();
@@ -176,11 +179,16 @@ impl ListCommand {
         if !quiet {
             println!();
             println!("{}", "Selected processes:".bold().cyan());
+            let port_manager = crate::port::PortManager::new();
             for &idx in &selections {
                 let process = &processes[idx];
+                let display_path = port_manager.get_display_path(process);
                 println!(
-                    "• {} (PID: {}) - Port {}",
-                    process.name, process.pid, process.port
+                    "• {} (PID: {}) - Port {} - Path: {}",
+                    process.name.yellow(), 
+                    process.pid.to_string().blue(), 
+                    process.port.to_string().white(),
+                    display_path.cyan()
                 );
             }
             println!();
