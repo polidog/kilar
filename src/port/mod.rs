@@ -10,7 +10,6 @@ pub struct ProcessInfo {
     pub port: u16,
     pub protocol: String,
     pub address: String,
-    pub path: String,
 }
 
 pub struct PortManager;
@@ -251,8 +250,6 @@ impl PortManager {
                 Err(_) => command.to_string(),
             };
 
-            let path = self.extract_executable_path(&full_command);
-
             let name = self.extract_process_name(&full_command);
 
             processes.push(ProcessInfo {
@@ -262,7 +259,6 @@ impl PortManager {
                 port,
                 protocol,
                 address,
-                path,
             });
         }
 
@@ -320,8 +316,6 @@ impl PortManager {
                 Err(_) => ("Unknown".to_string(), "Unknown".to_string()),
             };
 
-            let path = self.extract_executable_path(&command);
-
             processes.push(ProcessInfo {
                 pid,
                 name,
@@ -329,7 +323,6 @@ impl PortManager {
                 port,
                 protocol,
                 address,
-                path,
             });
         }
 
@@ -391,7 +384,6 @@ impl PortManager {
             };
 
             let name = self.extract_process_name(&full_command);
-            let path = self.extract_executable_path(&full_command);
 
             processes.push(ProcessInfo {
                 pid,
@@ -400,7 +392,6 @@ impl PortManager {
                 port,
                 protocol,
                 address,
-                path,
             });
         }
 
@@ -462,7 +453,6 @@ impl PortManager {
             };
 
             let name = self.extract_process_name(&full_command);
-            let path = self.extract_executable_path(&full_command);
 
             processes.push(ProcessInfo {
                 pid,
@@ -471,7 +461,6 @@ impl PortManager {
                 port,
                 protocol,
                 address,
-                path,
             });
         }
 
@@ -513,20 +502,6 @@ impl PortManager {
         }
     }
 
-    fn extract_executable_path(&self, command_line: &str) -> String {
-        // コマンドラインから実行ファイルのパスを抽出
-        if command_line.is_empty() {
-            return "Unknown".to_string();
-        }
-
-        // スペースで分割して最初の部分（実行ファイル）を取得
-        let parts: Vec<&str> = command_line.split_whitespace().collect();
-        if let Some(first_part) = parts.first() {
-            first_part.to_string()
-        } else {
-            "Unknown".to_string()
-        }
-    }
 
     #[cfg(not(target_os = "windows"))]
     async fn get_process_command(&self, pid: u32) -> Result<String> {

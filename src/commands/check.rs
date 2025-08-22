@@ -66,7 +66,6 @@ impl CheckCommand {
                     println!("  {} {}", "PID:".cyan(), process_info.pid);
                     println!("  {} {}", "Process:".cyan(), process_info.name);
                     if verbose {
-                        println!("  {} {}", "Path:".cyan(), process_info.path);
                         println!("  {} {}", "Command:".cyan(), process_info.command);
                         println!("  {} {}", "Address:".cyan(), process_info.address);
                     }

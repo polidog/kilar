@@ -100,25 +100,23 @@ impl ListCommand {
 
         if verbose {
             println!(
-                "{:<8} {:<12} {:<20} {:<15} {:<40} {}",
+                "{:<8} {:<12} {:<20} {:<15} {}",
                 "PORT".cyan().bold(),
                 "PROTOCOL".cyan().bold(),
                 "PROCESS".cyan().bold(),
                 "PID".cyan().bold(),
-                "PATH".cyan().bold(),
                 "COMMAND".cyan().bold()
             );
-            println!("{}", "-".repeat(120));
+            println!("{}", "-".repeat(80));
 
             for process in processes {
                 println!(
-                    "{:<8} {:<12} {:<20} {:<15} {:<40} {}",
+                    "{:<8} {:<12} {:<20} {:<15} {}",
                     process.port.to_string().white(),
                     process.protocol.to_uppercase().green(),
                     process.name.yellow(),
                     process.pid.to_string().blue(),
-                    process.path.truncate_with_ellipsis(38).magenta(),
-                    process.command.truncate_with_ellipsis(30).dimmed()
+                    process.command.truncate_with_ellipsis(50).dimmed()
                 );
             }
         } else {
@@ -164,13 +162,12 @@ impl ListCommand {
             .iter()
             .map(|p| {
                 format!(
-                    "{} ({}) - {} ({}) - {} | {}",
+                    "{} ({}) - {} ({}) - {}",
                     p.port.to_string().white(),
                     p.protocol.to_uppercase().green(),
                     p.name.yellow(),
                     p.pid.to_string().blue(),
-                    p.path.truncate_with_ellipsis(25).magenta(),
-                    p.command.truncate_with_ellipsis(40).dimmed()
+                    p.command.truncate_with_ellipsis(60).dimmed()
                 )
             })
             .collect();
