@@ -68,7 +68,6 @@ async fn test_list_command_port_range_parsing() {
         false,
         true,
         true,
-        Some("balanced"),
         false,
     )
     .await;
@@ -98,7 +97,6 @@ async fn test_list_command_invalid_port_range() {
         false,
         true,
         true,
-        Some("balanced"),
         false,
     )
     .await;
