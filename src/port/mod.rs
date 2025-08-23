@@ -33,8 +33,17 @@ impl PortManager {
     }
 
     pub async fn check_port(&self, port: u16, protocol: &str) -> Result<Option<ProcessInfo>> {
-        let processes = self.list_processes(protocol).await?;
-        Ok(processes.into_iter().find(|p| p.port == port))
+        // Use optimized check for better performance
+        self.check_port_optimized(port, protocol).await
+    }
+
+    /// Optimized port check that only searches for specific port instead of listing all processes
+    pub async fn check_port_optimized(
+        &self,
+        port: u16,
+        protocol: &str,
+    ) -> Result<Option<ProcessInfo>> {
+        self.check_port_unix_optimized(port, protocol).await
     }
 
     pub async fn list_processes(&self, protocol: &str) -> Result<Vec<ProcessInfo>> {
@@ -68,6 +77,26 @@ impl PortManager {
         }
 
         self.try_netstat_unix(protocol).await
+    }
+
+    /// Optimized Unix port check for a specific port
+    async fn check_port_unix_optimized(
+        &self,
+        port: u16,
+        protocol: &str,
+    ) -> Result<Option<ProcessInfo>> {
+        // Try lsof for specific port first - much faster than scanning all ports
+        if let Ok(result) = self.try_lsof_specific_port(port, protocol).await {
+            return Ok(result);
+        }
+
+        // Fallback to ss for specific port
+        if let Ok(result) = self.try_ss_specific_port(port, protocol).await {
+            return Ok(result);
+        }
+
+        // Final fallback: netstat for specific port
+        self.try_netstat_specific_port(port, protocol).await
     }
 
     async fn list_processes_unix_with_progress<F>(
@@ -181,6 +210,75 @@ impl PortManager {
     async fn try_lsof(&self, protocol: &str) -> Result<Vec<ProcessInfo>> {
         self.try_lsof_with_callback(protocol, &None::<fn(&str)>)
             .await
+    }
+
+    /// Fast lsof check for specific port
+    async fn try_lsof_specific_port(
+        &self,
+        port: u16,
+        protocol: &str,
+    ) -> Result<Option<ProcessInfo>> {
+        let protocol_flag = match protocol.to_lowercase().as_str() {
+            "tcp" => "-iTCP",
+            "udp" => "-iUDP",
+            _ => "-i",
+        };
+
+        let output = TokioCommand::new("lsof")
+            .args(["-n", "-P", protocol_flag, &format!(":{}", port)])
+            .output()
+            .await?;
+
+        if !output.status.success() {
+            return Ok(None);
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let lines: Vec<&str> = stdout.lines().collect();
+
+        // Skip header line
+        for line in lines.iter().skip(1) {
+            if line.trim().is_empty() {
+                continue;
+            }
+
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 9 {
+                if let Ok(pid) = parts[1].parse::<u32>() {
+                    // Parse address:port from lsof output
+                    let name_col = parts[8];
+                    if name_col.contains(&format!(":{}", port)) {
+                        let full_command = self
+                            .get_process_command(pid)
+                            .await
+                            .unwrap_or_else(|_| "Unknown".to_string());
+                        let name = self.extract_process_name(&full_command);
+                        let executable_path = self
+                            .get_process_executable(pid)
+                            .await
+                            .unwrap_or_else(|_| self.extract_executable_path(&full_command));
+                        let working_directory = self
+                            .get_process_working_directory(pid)
+                            .await
+                            .unwrap_or_else(|_| "Unknown".to_string());
+
+                        return Ok(Some(ProcessInfo {
+                            pid,
+                            name,
+                            command: full_command,
+                            executable_path,
+                            working_directory,
+                            port,
+                            protocol: protocol.to_string(),
+                            address: name_col.split(':').next().unwrap_or("*").to_string(),
+                            inode: None,
+                        }));
+                    }
+                }
+            }
+        }
+
+        Ok(None)
     }
 
     async fn try_lsof_with_callback<F>(
@@ -425,6 +523,97 @@ impl PortManager {
         Ok(processes)
     }
 
+    /// Fast ss check for specific port
+    async fn try_ss_specific_port(&self, port: u16, protocol: &str) -> Result<Option<ProcessInfo>> {
+        let mut cmd = TokioCommand::new("ss");
+        cmd.arg("-n") // Numeric display
+            .arg("-p"); // Process info
+
+        match protocol.to_lowercase().as_str() {
+            "tcp" => {
+                cmd.arg("-lt");
+                cmd.arg(&format!("sport = :{}", port));
+            }
+            "udp" => {
+                cmd.arg("-lu");
+                cmd.arg(&format!("sport = :{}", port));
+            }
+            _ => {
+                cmd.arg("-lt");
+                cmd.arg(&format!("sport = :{}", port));
+            }
+        }
+
+        let output = cmd.output().await?;
+        if !output.status.success() {
+            return Ok(None);
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines().skip(1) {
+            if line.trim().is_empty() {
+                continue;
+            }
+
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() < 7 {
+                continue;
+            }
+
+            // Extract PID from process info (usually in format "users:(("command",pid=1234,fd=1))")
+            if let Some(process_part) = parts.iter().find(|&p| p.contains("pid=")) {
+                if let Some(pid_start) = process_part.find("pid=") {
+                    if let Some(pid_end) = process_part[pid_start + 4..].find(',') {
+                        if let Ok(pid) =
+                            process_part[pid_start + 4..pid_start + 4 + pid_end].parse::<u32>()
+                        {
+                            let full_command = self
+                                .get_process_command(pid)
+                                .await
+                                .unwrap_or_else(|_| "Unknown".to_string());
+                            let name = self.extract_process_name(&full_command);
+                            let executable_path = self
+                                .get_process_executable(pid)
+                                .await
+                                .unwrap_or_else(|_| self.extract_executable_path(&full_command));
+                            let working_directory = self
+                                .get_process_working_directory(pid)
+                                .await
+                                .unwrap_or_else(|_| "Unknown".to_string());
+                            {
+                                // Parse the local address to get the port
+                                if let Some(local_addr) = parts.get(4) {
+                                    if local_addr.ends_with(&format!(":{}", port)) {
+                                        let address = if let Some(colon_pos) = local_addr.rfind(':')
+                                        {
+                                            local_addr[..colon_pos].to_string()
+                                        } else {
+                                            "*".to_string()
+                                        };
+
+                                        return Ok(Some(ProcessInfo {
+                                            pid,
+                                            name,
+                                            command: full_command,
+                                            executable_path,
+                                            working_directory,
+                                            port,
+                                            protocol: protocol.to_string(),
+                                            address,
+                                            inode: None,
+                                        }));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
     async fn parse_lsof_output_with_callback<F>(
         &self,
         output: &str,
@@ -651,6 +840,95 @@ impl PortManager {
         }
 
         Ok(processes)
+    }
+
+    /// Fast netstat check for specific port
+    async fn try_netstat_specific_port(
+        &self,
+        port: u16,
+        protocol: &str,
+    ) -> Result<Option<ProcessInfo>> {
+        let mut cmd = TokioCommand::new("netstat");
+        cmd.arg("-n") // Numeric display
+            .arg("-p"); // Process info
+
+        match protocol.to_lowercase().as_str() {
+            "tcp" => {
+                cmd.arg("-t") // TCP only
+                    .arg("-l"); // Listening
+            }
+            "udp" => {
+                cmd.arg("-u") // UDP only
+                    .arg("-l"); // Listening
+            }
+            _ => {
+                cmd.arg("-t") // Default TCP
+                    .arg("-l"); // Listening
+            }
+        }
+
+        let output = cmd.output().await?;
+        if !output.status.success() {
+            return Ok(None);
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            if line.trim().is_empty() || line.contains("Proto") {
+                continue;
+            }
+
+            let fields: Vec<&str> = line.split_whitespace().collect();
+            if fields.len() < 7 {
+                continue;
+            }
+
+            let local_address = fields[3];
+            if !local_address.ends_with(&format!(":{}", port)) {
+                continue;
+            }
+
+            // Extract PID from last field (format: pid/program_name)
+            if let Some(pid_program) = fields.get(6) {
+                if let Some(slash_pos) = pid_program.find('/') {
+                    if let Ok(pid) = pid_program[..slash_pos].parse::<u32>() {
+                        let address = if let Some(colon_pos) = local_address.rfind(':') {
+                            local_address[..colon_pos].to_string()
+                        } else {
+                            "*".to_string()
+                        };
+
+                        let full_command = self
+                            .get_process_command(pid)
+                            .await
+                            .unwrap_or_else(|_| "Unknown".to_string());
+                        let name = self.extract_process_name(&full_command);
+                        let executable_path = self
+                            .get_process_executable(pid)
+                            .await
+                            .unwrap_or_else(|_| self.extract_executable_path(&full_command));
+                        let working_directory = self
+                            .get_process_working_directory(pid)
+                            .await
+                            .unwrap_or_else(|_| "Unknown".to_string());
+
+                        return Ok(Some(ProcessInfo {
+                            pid,
+                            name,
+                            command: full_command,
+                            executable_path,
+                            working_directory,
+                            port,
+                            protocol: protocol.to_string(),
+                            address,
+                            inode: None,
+                        }));
+                    }
+                }
+            }
+        }
+
+        Ok(None)
     }
 
     async fn parse_netstat_unix_output(
