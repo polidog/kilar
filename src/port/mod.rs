@@ -532,15 +532,15 @@ impl PortManager {
         match protocol.to_lowercase().as_str() {
             "tcp" => {
                 cmd.arg("-lt");
-                cmd.arg(&format!("sport = :{}", port));
+                cmd.arg(format!("sport = :{}", port));
             }
             "udp" => {
                 cmd.arg("-lu");
-                cmd.arg(&format!("sport = :{}", port));
+                cmd.arg(format!("sport = :{}", port));
             }
             _ => {
                 cmd.arg("-lt");
-                cmd.arg(&format!("sport = :{}", port));
+                cmd.arg(format!("sport = :{}", port));
             }
         }
 
