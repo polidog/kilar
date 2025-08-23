@@ -43,6 +43,22 @@ impl PortManager {
         self.list_processes_unix(protocol).await
     }
 
+    pub async fn list_processes_with_progress<F>(
+        &self,
+        protocol: &str,
+        progress_callback: Option<F>,
+    ) -> Result<Vec<ProcessInfo>>
+    where
+        F: Fn(&str) + Send + Sync,
+    {
+        if let Some(callback) = &progress_callback {
+            callback("Initializing port scan...");
+        }
+
+        self.list_processes_unix_with_progress(protocol, progress_callback)
+            .await
+    }
+
     async fn list_processes_unix(&self, protocol: &str) -> Result<Vec<ProcessInfo>> {
         // Try lsof first, fallback to ss, then netstat
         if let Ok(result) = self.try_lsof(protocol).await {
@@ -51,6 +67,38 @@ impl PortManager {
 
         if let Ok(result) = self.try_ss(protocol).await {
             return Ok(result);
+        }
+
+        self.try_netstat_unix(protocol).await
+    }
+
+    async fn list_processes_unix_with_progress<F>(
+        &self,
+        protocol: &str,
+        callback: Option<F>,
+    ) -> Result<Vec<ProcessInfo>>
+    where
+        F: Fn(&str) + Send + Sync,
+    {
+        if let Some(ref cb) = callback {
+            cb("Executing port scan with lsof...");
+        }
+
+        // Try lsof first, fallback to ss, then netstat
+        if let Ok(result) = self.try_lsof_with_callback(protocol, &callback).await {
+            return Ok(result);
+        }
+
+        if let Some(ref cb) = callback {
+            cb("Trying alternative method (ss)...");
+        }
+
+        if let Ok(result) = self.try_ss(protocol).await {
+            return Ok(result);
+        }
+
+        if let Some(ref cb) = callback {
+            cb("Trying fallback method (netstat)...");
         }
 
         self.try_netstat_unix(protocol).await
@@ -133,6 +181,18 @@ impl PortManager {
     }
 
     async fn try_lsof(&self, protocol: &str) -> Result<Vec<ProcessInfo>> {
+        self.try_lsof_with_callback(protocol, &None::<fn(&str)>)
+            .await
+    }
+
+    async fn try_lsof_with_callback<F>(
+        &self,
+        protocol: &str,
+        callback: &Option<F>,
+    ) -> Result<Vec<ProcessInfo>>
+    where
+        F: Fn(&str) + Send + Sync,
+    {
         let mut cmd = TokioCommand::new("lsof");
         cmd.arg("-n") // 数値表示（ホスト名解決なし）
             .arg("-P"); // ポート番号を数値表示
@@ -166,7 +226,18 @@ impl PortManager {
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        self.parse_lsof_output(&stdout, protocol).await
+
+        // Report parsing stage
+        if let Some(ref cb) = callback {
+            cb("Parsing port information...");
+        }
+
+        if callback.is_some() {
+            self.parse_lsof_output_with_callback(&stdout, protocol, callback)
+                .await
+        } else {
+            self.parse_lsof_output(&stdout, protocol).await
+        }
     }
 
     async fn try_ss(&self, protocol: &str) -> Result<Vec<ProcessInfo>> {
@@ -315,6 +386,143 @@ impl PortManager {
         let process_details = self.get_all_process_details(&pids).await?;
 
         // Second pass: build ProcessInfo with detailed information
+        for (pid, command, port, protocol, address) in basic_process_info {
+            // Use command from lsof as fallback instead of calling ps individually
+            let full_command = command.to_string();
+
+            let name = self.extract_process_name(&full_command);
+
+            // Get details from batch result
+            let (executable_path, working_directory) =
+                if let Some(details) = process_details.get(&pid) {
+                    let executable_path = if details.executable_path != "Unknown" {
+                        details.executable_path.clone()
+                    } else {
+                        // Fallback to extracting from command line
+                        self.extract_executable_path(&full_command)
+                    };
+
+                    (executable_path, details.working_directory.clone())
+                } else {
+                    // Fallback if batch processing failed
+                    (
+                        self.extract_executable_path(&full_command),
+                        "Unknown".to_string(),
+                    )
+                };
+
+            processes.push(ProcessInfo {
+                pid,
+                name,
+                command: full_command,
+                executable_path,
+                working_directory,
+                port,
+                protocol,
+                address,
+                inode: None, // Legacy implementation doesn't track inodes
+            });
+        }
+
+        Ok(processes)
+    }
+
+    async fn parse_lsof_output_with_callback<F>(
+        &self,
+        output: &str,
+        _protocol: &str,
+        callback: &Option<F>,
+    ) -> Result<Vec<ProcessInfo>>
+    where
+        F: Fn(&str),
+    {
+        if let Some(ref cb) = callback {
+            cb("Parsing lsof output...");
+        }
+        let mut processes = Vec::new();
+        let mut basic_process_info = Vec::new();
+
+        // First pass: collect basic process info and PIDs
+        if let Some(ref cb) = callback {
+            cb("Extracting port information...");
+        }
+        for line in output.lines().skip(1) {
+            // ヘッダー行をスキップ
+            let fields: Vec<&str> = line.split_whitespace().collect();
+            if fields.len() < 9 {
+                continue;
+            }
+
+            let command = fields[0];
+            let pid_str = fields[1];
+            let type_field = fields[4];
+            let protocol_field = if fields.len() > 7 { fields[7] } else { "" };
+            let node = fields[8];
+
+            // TCPまたはUDPポートのみ処理
+            if !type_field.contains("IPv4") && !type_field.contains("IPv6") {
+                continue;
+            }
+
+            let pid = match pid_str.parse::<u32>() {
+                Ok(pid) => pid,
+                Err(_) => continue,
+            };
+
+            // ポート番号を抽出
+            let port = if let Some(colon_pos) = node.rfind(':') {
+                match node[colon_pos + 1..].parse::<u16>() {
+                    Ok(port) => port,
+                    Err(_) => continue,
+                }
+            } else {
+                continue;
+            };
+
+            let address = if let Some(colon_pos) = node.rfind(':') {
+                node[..colon_pos].to_string()
+            } else {
+                "*".to_string()
+            };
+
+            // プロトコルを複数の列から判定
+            let protocol = if protocol_field.contains("TCP") || protocol_field.contains("tcp") {
+                "tcp"
+            } else if protocol_field.contains("UDP") || protocol_field.contains("udp") {
+                "udp"
+            } else if node.contains("TCP") || node.contains("tcp") {
+                "tcp"
+            } else if node.contains("UDP") || node.contains("udp") {
+                "udp"
+            } else if type_field.contains("TCP") || type_field.contains("tcp") {
+                "tcp"
+            } else if type_field.contains("UDP") || type_field.contains("udp") {
+                "udp"
+            } else {
+                // lsofのデフォルト動作から推測：リスニングポートは通常TCP
+                "tcp"
+            }
+            .to_string();
+
+            basic_process_info.push((pid, command, port, protocol, address));
+        }
+
+        // Extract unique PIDs for batch processing
+        let pids: Vec<u32> = basic_process_info
+            .iter()
+            .map(|(pid, _, _, _, _)| *pid)
+            .collect();
+
+        // Get all process details in a single lsof call
+        if let Some(ref cb) = callback {
+            cb("Collecting detailed process information...");
+        }
+        let process_details = self.get_all_process_details(&pids).await?;
+
+        // Second pass: build ProcessInfo with detailed information
+        if let Some(ref cb) = callback {
+            cb("Building process list...");
+        }
         for (pid, command, port, protocol, address) in basic_process_info {
             // Use command from lsof as fallback instead of calling ps individually
             let full_command = command.to_string();

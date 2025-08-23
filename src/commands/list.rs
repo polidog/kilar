@@ -5,6 +5,7 @@ use crate::{
 };
 use colored::Colorize;
 use dialoguer::{Confirm, MultiSelect};
+use indicatif::{ProgressBar, ProgressStyle};
 
 #[derive(Debug)]
 pub struct ListOptions {
@@ -57,9 +58,9 @@ impl ListCommand {
                 Some("complete") => PerformanceProfile::Complete,
                 _ => PerformanceProfile::Balanced,
             };
-            
+
             let mut manager = IncrementalPortManager::new(profile);
-            
+
             Self::execute_watch_mode(
                 &mut manager,
                 &options.protocol,
@@ -94,9 +95,44 @@ impl ListCommand {
         quiet: bool,
         json: bool,
     ) -> Result<()> {
+        // Show progress indicator for interactive use
+        let spinner = if !quiet && !json {
+            let pb = ProgressBar::new_spinner();
+            pb.set_style(
+                ProgressStyle::default_spinner()
+                    .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ")
+                    .template("{spinner:.cyan} {msg}")
+                    .unwrap(),
+            );
+            pb.set_message("Scanning ports...");
+            pb.enable_steady_tick(std::time::Duration::from_millis(100));
+            Some(pb)
+        } else {
+            None
+        };
+
         // Use lightweight PortManager directly
         let manager = PortManager::new();
-        let mut processes = manager.list_processes(protocol).await?;
+
+        // Create progress callback for the spinner
+        let mut processes = if let Some(ref pb) = spinner {
+            let pb_clone = pb.clone();
+            manager
+                .list_processes_with_progress(
+                    protocol,
+                    Some(move |msg: &str| {
+                        pb_clone.set_message(msg.to_string());
+                    }),
+                )
+                .await?
+        } else {
+            manager.list_processes(protocol).await?
+        };
+
+        // Clear spinner on completion
+        if let Some(pb) = spinner {
+            pb.finish_with_message(format!("{} Port scan complete", "✓".green()));
+        }
 
         // ポート範囲フィルタリング
         if let Some(range) = ports_range {

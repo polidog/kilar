@@ -93,7 +93,9 @@ impl AdaptivePortManager {
             // Only benchmark if performance difference is potentially significant
             if self.procfs_performance.is_none() || self.legacy_performance.is_none() {
                 self.benchmark_performance(protocol).await?;
-            } else if let (Some(procfs), Some(legacy)) = (self.procfs_performance, self.legacy_performance) {
+            } else if let (Some(procfs), Some(legacy)) =
+                (self.procfs_performance, self.legacy_performance)
+            {
                 // Only re-benchmark if there's no clear winner (within 20% performance difference)
                 let ratio = procfs.as_secs_f64() / legacy.as_secs_f64();
                 if ratio > 0.8 && ratio < 1.2 {
