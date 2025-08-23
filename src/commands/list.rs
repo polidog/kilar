@@ -1,10 +1,25 @@
 use crate::{port::PortManager, process::ProcessManager, Result};
 use colored::Colorize;
 use dialoguer::{Confirm, MultiSelect};
+use indicatif::{ProgressBar, ProgressStyle};
+use std::time::Duration;
+
+#[derive(Debug)]
+pub struct ListOptions {
+    pub ports_range: Option<String>,
+    pub filter: Option<String>,
+    pub sort: String,
+    pub protocol: String,
+    pub kill: bool,
+    pub quiet: bool,
+    pub json: bool,
+    pub watch: bool,
+}
 
 pub struct ListCommand;
 
 impl ListCommand {
+    #[allow(clippy::too_many_arguments)]
     pub async fn execute(
         ports_range: Option<String>,
         filter: Option<String>,
@@ -13,10 +28,96 @@ impl ListCommand {
         kill: bool,
         quiet: bool,
         json: bool,
+        watch: bool,
     ) -> Result<()> {
-        let port_manager = PortManager::new();
+        let options = ListOptions {
+            ports_range,
+            filter,
+            sort: sort.to_string(),
+            protocol: protocol.to_string(),
+            kill,
+            quiet,
+            json,
+            watch,
+        };
 
-        let mut processes = port_manager.list_processes(protocol).await?;
+        Self::execute_with_options(options).await
+    }
+
+    pub async fn execute_with_options(options: ListOptions) -> Result<()> {
+        if options.watch {
+            // Use simple watch mode with PortManager
+            Self::execute_simple_watch_mode(
+                &options.protocol,
+                options.ports_range,
+                options.filter,
+                &options.sort,
+                options.quiet,
+            )
+            .await
+        } else {
+            // Use lightweight PortManager for single runs
+            Self::execute_single_run_simple(
+                options.ports_range,
+                options.filter,
+                &options.sort,
+                &options.protocol,
+                options.kill,
+                options.quiet,
+                options.json,
+            )
+            .await
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn execute_single_run_simple(
+        ports_range: Option<String>,
+        filter: Option<String>,
+        sort: &str,
+        protocol: &str,
+        kill: bool,
+        quiet: bool,
+        json: bool,
+    ) -> Result<()> {
+        // Show progress indicator for interactive use
+        let spinner = if !quiet && !json {
+            let pb = ProgressBar::new_spinner();
+            pb.set_style(
+                ProgressStyle::default_spinner()
+                    .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ")
+                    .template("{spinner:.cyan} {msg}")
+                    .unwrap(),
+            );
+            pb.set_message("Scanning ports...");
+            pb.enable_steady_tick(std::time::Duration::from_millis(100));
+            Some(pb)
+        } else {
+            None
+        };
+
+        // Use lightweight PortManager directly
+        let manager = PortManager::new();
+
+        // Create progress callback for the spinner
+        let mut processes = if let Some(ref pb) = spinner {
+            let pb_clone = pb.clone();
+            manager
+                .list_processes_with_progress(
+                    protocol,
+                    Some(move |msg: &str| {
+                        pb_clone.set_message(msg.to_string());
+                    }),
+                )
+                .await?
+        } else {
+            manager.list_processes(protocol).await?
+        };
+
+        // Clear spinner on completion
+        if let Some(pb) = spinner {
+            pb.finish_with_message(format!("{} Port scan complete", "✓".green()));
+        }
 
         // ポート範囲フィルタリング
         if let Some(range) = ports_range {
@@ -41,7 +142,11 @@ impl ListCommand {
             let json_output = serde_json::json!({
                 "protocol": protocol,
                 "total_processes": processes.len(),
-                "processes": processes
+                "processes": processes,
+                "performance": {
+                    "mode": "simple",
+                    "manager": "PortManager"
+                }
             });
             println!("{}", serde_json::to_string_pretty(&json_output)?);
         } else if processes.is_empty() {
@@ -53,7 +158,6 @@ impl ListCommand {
                 Self::print_table(&processes);
             }
 
-            // 対話的kill機能
             if kill {
                 if processes.is_empty() {
                     if !quiet {
@@ -61,7 +165,6 @@ impl ListCommand {
                     }
                     return Ok(());
                 }
-
                 Self::interactive_kill(processes, quiet).await?;
             }
         }
@@ -69,14 +172,14 @@ impl ListCommand {
         Ok(())
     }
 
-    fn parse_port_range(range: &str) -> Result<(u16, u16)> {
+    pub(crate) fn parse_port_range(range: &str) -> Result<(u16, u16)> {
         if let Some((start_str, end_str)) = range.split_once('-') {
             let start = start_str.parse::<u16>().map_err(|_| {
-                crate::Error::InvalidPort(format!("Invalid start port: {}", start_str))
+                crate::Error::InvalidPort(format!("Invalid start port: {start_str}"))
             })?;
             let end = end_str
                 .parse::<u16>()
-                .map_err(|_| crate::Error::InvalidPort(format!("Invalid end port: {}", end_str)))?;
+                .map_err(|_| crate::Error::InvalidPort(format!("Invalid end port: {end_str}")))?;
 
             if start > end {
                 return Err(crate::Error::InvalidPort(
@@ -92,7 +195,7 @@ impl ListCommand {
         }
     }
 
-    fn print_table(processes: &[crate::port::ProcessInfo]) {
+    pub(crate) fn print_table(processes: &[crate::port::ProcessInfo]) {
         println!("{}", "Ports in use:".bold().green());
         println!();
 
@@ -107,10 +210,8 @@ impl ListCommand {
         );
         println!("{}", "-".repeat(130));
 
-        let port_manager = crate::port::PortManager::new();
-
         for process in processes {
-            let display_path = port_manager.get_display_path(process);
+            let display_path = Self::get_display_path(process);
             println!(
                 "{:<8} {:<12} {:<20} {:<10} {:<40} {}",
                 process.port.to_string().white(),
@@ -137,11 +238,10 @@ impl ListCommand {
         }
 
         // MultiSelect用のオプション作成（詳細情報付き）
-        let port_manager = crate::port::PortManager::new();
         let options: Vec<String> = processes
             .iter()
             .map(|p| {
-                let display_path = port_manager.get_display_path(p);
+                let display_path = Self::get_display_path(p);
                 format!(
                     "Port {} ({}) | {} (PID:{}) | Path: {} | Cmd: {}",
                     p.port.to_string().white(),
@@ -179,10 +279,9 @@ impl ListCommand {
         if !quiet {
             println!();
             println!("{}", "Selected processes:".bold().cyan());
-            let port_manager = crate::port::PortManager::new();
             for &idx in &selections {
                 let process = &processes[idx];
-                let display_path = port_manager.get_display_path(process);
+                let display_path = Self::get_display_path(process);
                 println!(
                     "• {} (PID: {}) - Port {} - Path: {}",
                     process.name.yellow(),
@@ -281,6 +380,78 @@ impl ListCommand {
 
         Ok(())
     }
+
+    async fn execute_simple_watch_mode(
+        protocol: &str,
+        ports_range: Option<String>,
+        filter: Option<String>,
+        sort: &str,
+        quiet: bool,
+    ) -> Result<()> {
+        if !quiet {
+            println!(
+                "{} Starting port monitoring... (Press Ctrl+C to stop)",
+                "●".green()
+            );
+            println!();
+        }
+
+        let manager = PortManager::new();
+        let display_interval = Duration::from_secs(1);
+
+        let result = loop {
+            tokio::select! {
+                _ = tokio::time::sleep(display_interval) => {
+                    let mut processes = manager.list_processes(protocol).await?;
+
+                    // Apply same filters as single run
+                    if let Some(ref range) = ports_range {
+                        let (start, end) = Self::parse_port_range(range)?;
+                        processes.retain(|p| p.port >= start && p.port <= end);
+                    }
+
+                    if let Some(ref filter_name) = filter {
+                        processes.retain(|p| p.name.to_lowercase().contains(&filter_name.to_lowercase()));
+                    }
+
+                    match sort {
+                        "port" => processes.sort_by_key(|p| p.port),
+                        "pid" => processes.sort_by_key(|p| p.pid),
+                        "name" => processes.sort_by(|a, b| a.name.cmp(&b.name)),
+                        _ => processes.sort_by_key(|p| p.port),
+                    }
+
+                    // Clear screen and show updated results
+                    if !quiet {
+                        print!("\x1B[2J\x1B[1;1H"); // Clear screen
+                        println!(
+                            "{} Port Monitor - {} | Last updated: {}",
+                            "●".green(),
+                            protocol.to_uppercase(),
+                            chrono::Utc::now().format("%H:%M:%S")
+                        );
+                        println!();
+
+                        if processes.is_empty() {
+                            println!("{} No ports in use found", "○".blue());
+                        } else {
+                            Self::print_table(&processes);
+                        }
+                    }
+                }
+                _ = tokio::signal::ctrl_c() => {
+                    break Ok(());
+                }
+            }
+        };
+
+        if !quiet {
+            println!();
+            println!("{} Monitoring stopped", "○".blue());
+        }
+
+        result
+    }
 }
 
 trait StringExt {
@@ -294,6 +465,32 @@ impl StringExt for String {
         } else {
             format!("{}...", &self[..max_len.saturating_sub(3)])
         }
+    }
+}
+
+impl ListCommand {
+    fn get_display_path(process_info: &crate::port::ProcessInfo) -> String {
+        // Prefer working directory for development processes (when it's not root)
+        if process_info.working_directory != "/" && process_info.working_directory != "Unknown" {
+            // Check if this is likely a development process based on the executable or command
+            let is_dev_process = process_info.executable_path.contains("/node")
+                || process_info.executable_path.contains("/python")
+                || process_info.executable_path.contains("/ruby")
+                || process_info.executable_path.contains("/java")
+                || process_info.command.contains("npm")
+                || process_info.command.contains("yarn")
+                || process_info.command.contains("pnpm")
+                || process_info.command.contains("next")
+                || process_info.command.contains("serve")
+                || process_info.command.contains("dev");
+
+            if is_dev_process {
+                return process_info.working_directory.clone();
+            }
+        }
+
+        // Fallback to executable path for system processes
+        process_info.executable_path.clone()
     }
 }
 

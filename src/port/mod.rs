@@ -1,6 +1,9 @@
 use crate::Result;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tokio::process::Command as TokioCommand;
+
+pub mod procfs;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProcessInfo {
@@ -12,6 +15,14 @@ pub struct ProcessInfo {
     pub port: u16,
     pub protocol: String,
     pub address: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inode: Option<u64>, // For procfs-based implementation
+}
+
+#[derive(Debug, Clone)]
+struct ProcessDetails {
+    executable_path: String,
+    working_directory: String,
 }
 
 pub struct PortManager;
@@ -30,6 +41,22 @@ impl PortManager {
         self.list_processes_unix(protocol).await
     }
 
+    pub async fn list_processes_with_progress<F>(
+        &self,
+        protocol: &str,
+        progress_callback: Option<F>,
+    ) -> Result<Vec<ProcessInfo>>
+    where
+        F: Fn(&str) + Send + Sync,
+    {
+        if let Some(callback) = &progress_callback {
+            callback("Initializing port scan...");
+        }
+
+        self.list_processes_unix_with_progress(protocol, progress_callback)
+            .await
+    }
+
     async fn list_processes_unix(&self, protocol: &str) -> Result<Vec<ProcessInfo>> {
         // Try lsof first, fallback to ss, then netstat
         if let Ok(result) = self.try_lsof(protocol).await {
@@ -43,7 +70,127 @@ impl PortManager {
         self.try_netstat_unix(protocol).await
     }
 
+    async fn list_processes_unix_with_progress<F>(
+        &self,
+        protocol: &str,
+        callback: Option<F>,
+    ) -> Result<Vec<ProcessInfo>>
+    where
+        F: Fn(&str) + Send + Sync,
+    {
+        if let Some(ref cb) = callback {
+            cb("Executing port scan with lsof...");
+        }
+
+        // Try lsof first, fallback to ss, then netstat
+        if let Ok(result) = self.try_lsof_with_callback(protocol, &callback).await {
+            return Ok(result);
+        }
+
+        if let Some(ref cb) = callback {
+            cb("Trying alternative method (ss)...");
+        }
+
+        if let Ok(result) = self.try_ss(protocol).await {
+            return Ok(result);
+        }
+
+        if let Some(ref cb) = callback {
+            cb("Trying fallback method (netstat)...");
+        }
+
+        self.try_netstat_unix(protocol).await
+    }
+
+    /// Get process details for multiple PIDs in a single lsof command
+    async fn get_all_process_details(&self, pids: &[u32]) -> Result<HashMap<u32, ProcessDetails>> {
+        if pids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let mut details_map = HashMap::new();
+
+        // Build PID list for lsof -p option
+        let pid_list = pids
+            .iter()
+            .map(|pid| pid.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+
+        let output = TokioCommand::new("lsof")
+            .arg("-p")
+            .arg(&pid_list)
+            .output()
+            .await;
+
+        if let Ok(output) = output {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+
+                // Parse lsof output to extract executable paths and working directories
+                for line in stdout.lines() {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 9 {
+                        if let Ok(pid) = parts[1].parse::<u32>() {
+                            if pids.contains(&pid) {
+                                let entry =
+                                    details_map.entry(pid).or_insert_with(|| ProcessDetails {
+                                        executable_path: "Unknown".to_string(),
+                                        working_directory: "Unknown".to_string(),
+                                    });
+
+                                // Check for executable (txt REG)
+                                if parts[3] == "txt" && parts[4] == "REG" {
+                                    let path = parts[8..].join(" ");
+
+                                    // Filter out system libraries, prefer application executables
+                                    if !path.contains("/usr/lib")
+                                        && !path.contains("/System/Library")
+                                        && !path.contains("/usr/share")
+                                        && !path.contains("/Library/Preferences/Logging")
+                                        && !path.contains("/private/var/db")
+                                        && !path.ends_with("/dyld")
+                                    {
+                                        entry.executable_path = path;
+                                    }
+                                }
+
+                                // Check for working directory (cwd DIR)
+                                if parts[3] == "cwd" && parts[4] == "DIR" {
+                                    let path = parts[8..].join(" ");
+                                    entry.working_directory = path;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fill in defaults for PIDs that weren't found
+        for &pid in pids {
+            details_map.entry(pid).or_insert_with(|| ProcessDetails {
+                executable_path: "Unknown".to_string(),
+                working_directory: "Unknown".to_string(),
+            });
+        }
+
+        Ok(details_map)
+    }
+
     async fn try_lsof(&self, protocol: &str) -> Result<Vec<ProcessInfo>> {
+        self.try_lsof_with_callback(protocol, &None::<fn(&str)>)
+            .await
+    }
+
+    async fn try_lsof_with_callback<F>(
+        &self,
+        protocol: &str,
+        callback: &Option<F>,
+    ) -> Result<Vec<ProcessInfo>>
+    where
+        F: Fn(&str) + Send + Sync,
+    {
         let mut cmd = TokioCommand::new("lsof");
         cmd.arg("-n") // 数値表示（ホスト名解決なし）
             .arg("-P"); // ポート番号を数値表示
@@ -65,21 +212,30 @@ impl PortManager {
 
         let output = cmd.output().await.map_err(|e| {
             crate::Error::CommandFailed(format!(
-                "lsof command failed: {}. Make sure required system tools are installed",
-                e
+                "lsof command failed: {e}. Make sure required system tools are installed"
             ))
         })?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(crate::Error::CommandFailed(format!(
-                "lsof failed: {}. Make sure required system tools are installed",
-                stderr
+                "lsof failed: {stderr}. Make sure required system tools are installed"
             )));
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        self.parse_lsof_output(&stdout, protocol).await
+
+        // Report parsing stage
+        if let Some(ref cb) = callback {
+            cb("Parsing port information...");
+        }
+
+        if callback.is_some() {
+            self.parse_lsof_output_with_callback(&stdout, protocol, callback)
+                .await
+        } else {
+            self.parse_lsof_output(&stdout, protocol).await
+        }
     }
 
     async fn try_ss(&self, protocol: &str) -> Result<Vec<ProcessInfo>> {
@@ -105,14 +261,11 @@ impl PortManager {
         let output = cmd
             .output()
             .await
-            .map_err(|e| crate::Error::CommandFailed(format!("ss command failed: {}", e)))?;
+            .map_err(|e| crate::Error::CommandFailed(format!("ss command failed: {e}")))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(crate::Error::CommandFailed(format!(
-                "ss failed: {}",
-                stderr
-            )));
+            return Err(crate::Error::CommandFailed(format!("ss failed: {stderr}")));
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -142,13 +295,12 @@ impl PortManager {
         let output = cmd
             .output()
             .await
-            .map_err(|e| crate::Error::CommandFailed(format!("netstat command failed: {}", e)))?;
+            .map_err(|e| crate::Error::CommandFailed(format!("netstat command failed: {e}")))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(crate::Error::CommandFailed(format!(
-                "netstat failed: {}",
-                stderr
+                "netstat failed: {stderr}"
             )));
         }
 
@@ -158,7 +310,9 @@ impl PortManager {
 
     async fn parse_lsof_output(&self, output: &str, _protocol: &str) -> Result<Vec<ProcessInfo>> {
         let mut processes = Vec::new();
+        let mut basic_process_info = Vec::new();
 
+        // First pass: collect basic process info and PIDs
         for line in output.lines().skip(1) {
             // ヘッダー行をスキップ
             let fields: Vec<&str> = line.split_whitespace().collect();
@@ -217,32 +371,43 @@ impl PortManager {
             }
             .to_string();
 
-            // プロセス情報を取得（完全なコマンドライン）
-            let full_command = match self.get_process_command(pid).await {
-                Ok(cmd) => cmd,
-                Err(_) => command.to_string(),
-            };
+            basic_process_info.push((pid, command, port, protocol, address));
+        }
+
+        // Extract unique PIDs for batch processing
+        let pids: Vec<u32> = basic_process_info
+            .iter()
+            .map(|(pid, _, _, _, _)| *pid)
+            .collect();
+
+        // Get all process details in a single lsof call
+        let process_details = self.get_all_process_details(&pids).await?;
+
+        // Second pass: build ProcessInfo with detailed information
+        for (pid, command, port, protocol, address) in basic_process_info {
+            // Use command from lsof as fallback instead of calling ps individually
+            let full_command = command.to_string();
 
             let name = self.extract_process_name(&full_command);
 
-            // Get the actual executable path
-            let executable_path = match self.get_process_executable(pid).await {
-                Ok(path) => {
-                    // If we got the same as command (fallback case), extract it
-                    if path == full_command {
-                        self.extract_executable_path(&full_command)
+            // Get details from batch result
+            let (executable_path, working_directory) =
+                if let Some(details) = process_details.get(&pid) {
+                    let executable_path = if details.executable_path != "Unknown" {
+                        details.executable_path.clone()
                     } else {
-                        path
-                    }
-                }
-                Err(_) => self.extract_executable_path(&full_command),
-            };
+                        // Fallback to extracting from command line
+                        self.extract_executable_path(&full_command)
+                    };
 
-            // Get the working directory
-            let working_directory = self
-                .get_process_working_directory(pid)
-                .await
-                .unwrap_or_else(|_| "Unknown".to_string());
+                    (executable_path, details.working_directory.clone())
+                } else {
+                    // Fallback if batch processing failed
+                    (
+                        self.extract_executable_path(&full_command),
+                        "Unknown".to_string(),
+                    )
+                };
 
             processes.push(ProcessInfo {
                 pid,
@@ -253,6 +418,144 @@ impl PortManager {
                 port,
                 protocol,
                 address,
+                inode: None, // Legacy implementation doesn't track inodes
+            });
+        }
+
+        Ok(processes)
+    }
+
+    async fn parse_lsof_output_with_callback<F>(
+        &self,
+        output: &str,
+        _protocol: &str,
+        callback: &Option<F>,
+    ) -> Result<Vec<ProcessInfo>>
+    where
+        F: Fn(&str),
+    {
+        if let Some(ref cb) = callback {
+            cb("Parsing lsof output...");
+        }
+        let mut processes = Vec::new();
+        let mut basic_process_info = Vec::new();
+
+        // First pass: collect basic process info and PIDs
+        if let Some(ref cb) = callback {
+            cb("Extracting port information...");
+        }
+        for line in output.lines().skip(1) {
+            // ヘッダー行をスキップ
+            let fields: Vec<&str> = line.split_whitespace().collect();
+            if fields.len() < 9 {
+                continue;
+            }
+
+            let command = fields[0];
+            let pid_str = fields[1];
+            let type_field = fields[4];
+            let protocol_field = if fields.len() > 7 { fields[7] } else { "" };
+            let node = fields[8];
+
+            // TCPまたはUDPポートのみ処理
+            if !type_field.contains("IPv4") && !type_field.contains("IPv6") {
+                continue;
+            }
+
+            let pid = match pid_str.parse::<u32>() {
+                Ok(pid) => pid,
+                Err(_) => continue,
+            };
+
+            // ポート番号を抽出
+            let port = if let Some(colon_pos) = node.rfind(':') {
+                match node[colon_pos + 1..].parse::<u16>() {
+                    Ok(port) => port,
+                    Err(_) => continue,
+                }
+            } else {
+                continue;
+            };
+
+            let address = if let Some(colon_pos) = node.rfind(':') {
+                node[..colon_pos].to_string()
+            } else {
+                "*".to_string()
+            };
+
+            // プロトコルを複数の列から判定
+            let protocol = if protocol_field.contains("TCP") || protocol_field.contains("tcp") {
+                "tcp"
+            } else if protocol_field.contains("UDP") || protocol_field.contains("udp") {
+                "udp"
+            } else if node.contains("TCP") || node.contains("tcp") {
+                "tcp"
+            } else if node.contains("UDP") || node.contains("udp") {
+                "udp"
+            } else if type_field.contains("TCP") || type_field.contains("tcp") {
+                "tcp"
+            } else if type_field.contains("UDP") || type_field.contains("udp") {
+                "udp"
+            } else {
+                // lsofのデフォルト動作から推測：リスニングポートは通常TCP
+                "tcp"
+            }
+            .to_string();
+
+            basic_process_info.push((pid, command, port, protocol, address));
+        }
+
+        // Extract unique PIDs for batch processing
+        let pids: Vec<u32> = basic_process_info
+            .iter()
+            .map(|(pid, _, _, _, _)| *pid)
+            .collect();
+
+        // Get all process details in a single lsof call
+        if let Some(ref cb) = callback {
+            cb("Collecting detailed process information...");
+        }
+        let process_details = self.get_all_process_details(&pids).await?;
+
+        // Second pass: build ProcessInfo with detailed information
+        if let Some(ref cb) = callback {
+            cb("Building process list...");
+        }
+        for (pid, command, port, protocol, address) in basic_process_info {
+            // Use command from lsof as fallback instead of calling ps individually
+            let full_command = command.to_string();
+
+            let name = self.extract_process_name(&full_command);
+
+            // Get details from batch result
+            let (executable_path, working_directory) =
+                if let Some(details) = process_details.get(&pid) {
+                    let executable_path = if details.executable_path != "Unknown" {
+                        details.executable_path.clone()
+                    } else {
+                        // Fallback to extracting from command line
+                        self.extract_executable_path(&full_command)
+                    };
+
+                    (executable_path, details.working_directory.clone())
+                } else {
+                    // Fallback if batch processing failed
+                    (
+                        self.extract_executable_path(&full_command),
+                        "Unknown".to_string(),
+                    )
+                };
+
+            processes.push(ProcessInfo {
+                pid,
+                name,
+                command: full_command,
+                executable_path,
+                working_directory,
+                port,
+                protocol,
+                address,
+                inode: None, // Legacy implementation doesn't track inodes
             });
         }
 
@@ -343,6 +646,7 @@ impl PortManager {
                 port,
                 protocol,
                 address,
+                inode: None, // Legacy implementation doesn't track inodes
             });
         }
 
@@ -433,6 +737,7 @@ impl PortManager {
                 port,
                 protocol,
                 address,
+                inode: None, // Legacy implementation doesn't track inodes
             });
         }
 
@@ -583,5 +888,342 @@ impl PortManager {
 impl Default for PortManager {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_process_info_creation() {
+        let process_info = ProcessInfo {
+            pid: 1234,
+            name: "test_process".to_string(),
+            command: "/usr/bin/test_process --port 8080".to_string(),
+            executable_path: "/usr/bin/test_process".to_string(),
+            working_directory: "/home/user/project".to_string(),
+            port: 8080,
+            protocol: "tcp".to_string(),
+            address: "127.0.0.1".to_string(),
+            inode: Some(12345),
+        };
+
+        assert_eq!(process_info.pid, 1234);
+        assert_eq!(process_info.name, "test_process");
+        assert_eq!(process_info.port, 8080);
+        assert_eq!(process_info.protocol, "tcp");
+        assert_eq!(process_info.address, "127.0.0.1");
+        assert_eq!(process_info.inode, Some(12345));
+    }
+
+    #[test]
+    fn test_process_info_serialization() {
+        let process_info = ProcessInfo {
+            pid: 1234,
+            name: "test_process".to_string(),
+            command: "/usr/bin/test_process --port 8080".to_string(),
+            executable_path: "/usr/bin/test_process".to_string(),
+            working_directory: "/home/user/project".to_string(),
+            port: 8080,
+            protocol: "tcp".to_string(),
+            address: "127.0.0.1".to_string(),
+            inode: None, // Test with None value
+        };
+
+        // Test JSON serialization
+        let json = serde_json::to_string(&process_info).expect("Failed to serialize");
+        assert!(json.contains("\"pid\":1234"));
+        assert!(json.contains("\"name\":\"test_process\""));
+        assert!(json.contains("\"port\":8080"));
+        assert!(!json.contains("\"inode\"")); // Should be skipped when None
+
+        // Test deserialization
+        let deserialized: ProcessInfo = serde_json::from_str(&json).expect("Failed to deserialize");
+        assert_eq!(deserialized.pid, process_info.pid);
+        assert_eq!(deserialized.name, process_info.name);
+        assert_eq!(deserialized.port, process_info.port);
+        assert_eq!(deserialized.inode, None);
+    }
+
+    #[tokio::test]
+    async fn test_port_manager_creation() {
+        let port_manager = PortManager::new();
+        // PortManagerが正常に作成されることを確認
+        assert!(std::ptr::addr_of!(port_manager) as *const PortManager != std::ptr::null());
+    }
+
+    #[tokio::test]
+    async fn test_check_port_with_empty_list() {
+        let port_manager = PortManager::new();
+
+        // システムに依存するテストなので、エラーハンドリングを主にテスト
+        match port_manager.check_port(65450, "tcp").await {
+            Ok(result) => {
+                // 結果がNoneまたはSomeのProcessInfoであることを確認
+                match result {
+                    Some(process_info) => {
+                        assert!(process_info.pid > 0);
+                        assert!(!process_info.name.is_empty());
+                        assert_eq!(process_info.port, 65450);
+                    }
+                    None => {
+                        // ポートが使用されていない場合
+                    }
+                }
+            }
+            Err(_) => {
+                // システムツールがない場合のエラー
+            }
+        }
+    }
+
+    #[test]
+    fn test_extract_process_name() {
+        let port_manager = PortManager::new();
+
+        // 様々な形式のコマンドラインからプロセス名を抽出するテスト
+        assert_eq!(
+            port_manager.extract_process_name("/usr/bin/node server.js"),
+            "node"
+        );
+        assert_eq!(
+            port_manager.extract_process_name("python3 app.py"),
+            "python3"
+        );
+        assert_eq!(
+            port_manager
+                .extract_process_name("/Applications/Chrome.app/Contents/MacOS/Google Chrome"),
+            "Google"
+        );
+        assert_eq!(port_manager.extract_process_name(""), "Unknown");
+        assert_eq!(
+            port_manager.extract_process_name("single_command"),
+            "single_command"
+        );
+        assert_eq!(
+            port_manager.extract_process_name("./local_binary --flag value"),
+            "local_binary"
+        );
+    }
+
+    #[test]
+    fn test_extract_executable_path() {
+        let port_manager = PortManager::new();
+
+        // 様々な形式のコマンドラインから実行ファイルパスを抽出するテスト
+        assert_eq!(
+            port_manager.extract_executable_path("/usr/bin/node server.js"),
+            "/usr/bin/node"
+        );
+        assert_eq!(
+            port_manager.extract_executable_path("python3 app.py"),
+            "python3"
+        );
+        assert_eq!(
+            port_manager.extract_executable_path(
+                "/Applications/Chrome.app/Contents/MacOS/Google Chrome --flag"
+            ),
+            "/Applications/Chrome.app/Contents/MacOS/Google"
+        );
+        assert_eq!(port_manager.extract_executable_path(""), "Unknown");
+        assert_eq!(
+            port_manager.extract_executable_path("single_command"),
+            "single_command"
+        );
+    }
+
+    #[test]
+    fn test_get_display_path_development_processes() {
+        let port_manager = PortManager::new();
+
+        // 開発プロセス用のProcessInfoをテスト
+        let dev_process_info = ProcessInfo {
+            pid: 1234,
+            name: "node".to_string(),
+            command: "/usr/local/bin/node server.js".to_string(),
+            executable_path: "/usr/local/bin/node".to_string(),
+            working_directory: "/home/user/my-project".to_string(),
+            port: 3000,
+            protocol: "tcp".to_string(),
+            address: "127.0.0.1".to_string(),
+            inode: Some(12345),
+        };
+
+        // 開発プロセスの場合は作業ディレクトリが返されるべき
+        let display_path = port_manager.get_display_path(&dev_process_info);
+        assert_eq!(display_path, "/home/user/my-project");
+    }
+
+    #[test]
+    fn test_get_display_path_system_processes() {
+        let port_manager = PortManager::new();
+
+        // システムプロセス用のProcessInfoをテスト
+        let system_process_info = ProcessInfo {
+            pid: 1234,
+            name: "sshd".to_string(),
+            command: "/usr/sbin/sshd -D".to_string(),
+            executable_path: "/usr/sbin/sshd".to_string(),
+            working_directory: "/".to_string(),
+            port: 22,
+            protocol: "tcp".to_string(),
+            address: "0.0.0.0".to_string(),
+            inode: Some(12345),
+        };
+
+        // システムプロセスの場合は実行ファイルパスが返されるべき
+        let display_path = port_manager.get_display_path(&system_process_info);
+        assert_eq!(display_path, "/usr/sbin/sshd");
+    }
+
+    #[test]
+    fn test_get_display_path_unknown_working_directory() {
+        let port_manager = PortManager::new();
+
+        let process_info = ProcessInfo {
+            pid: 1234,
+            name: "test_process".to_string(),
+            command: "/usr/bin/test_process".to_string(),
+            executable_path: "/usr/bin/test_process".to_string(),
+            working_directory: "Unknown".to_string(),
+            port: 8080,
+            protocol: "tcp".to_string(),
+            address: "127.0.0.1".to_string(),
+            inode: Some(12345),
+        };
+
+        // 作業ディレクトリが不明な場合は実行ファイルパスが返されるべき
+        let display_path = port_manager.get_display_path(&process_info);
+        assert_eq!(display_path, "/usr/bin/test_process");
+    }
+
+    #[tokio::test]
+    async fn test_list_processes_error_handling() {
+        let port_manager = PortManager::new();
+
+        // 様々なプロトコルでのエラーハンドリングをテスト
+        for protocol in ["tcp", "udp", "all", "invalid"] {
+            match port_manager.list_processes(protocol).await {
+                Ok(processes) => {
+                    // 成功した場合、ProcessInfoのリストが返される
+                    for process in processes {
+                        assert!(process.pid > 0);
+                        assert!(!process.name.is_empty());
+                        assert!(process.port > 0);
+                        assert!(!process.protocol.is_empty());
+                    }
+                }
+                Err(_) => {
+                    // システムツールがない場合やパーミッションエラー
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_processes_with_progress() {
+        let port_manager = PortManager::new();
+
+        // シンプルなプログレスコールバック（状態を変更しない）
+        let progress_callback = |_message: &str| {
+            // プログレスメッセージを受け取るだけのテスト
+        };
+
+        // プログレスコールバック付きでのリスト取得をテスト
+        match port_manager
+            .list_processes_with_progress("tcp", Some(progress_callback))
+            .await
+        {
+            Ok(_processes) => {
+                // コールバックが正常に動作したことを確認
+            }
+            Err(_) => {
+                // システムツールがない場合のエラーも受け入れ
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_empty_pid_list_get_all_process_details() {
+        let port_manager = PortManager::new();
+
+        // 空のPIDリストを渡した場合のテスト
+        let result = port_manager.get_all_process_details(&[]).await;
+        assert!(result.is_ok());
+
+        let details_map = result.unwrap();
+        assert!(details_map.is_empty());
+    }
+
+    #[test]
+    fn test_process_details_creation() {
+        // ProcessDetails構造体の作成をテスト
+        let details = ProcessDetails {
+            executable_path: "/usr/bin/test".to_string(),
+            working_directory: "/home/user".to_string(),
+        };
+
+        assert_eq!(details.executable_path, "/usr/bin/test");
+        assert_eq!(details.working_directory, "/home/user");
+    }
+
+    #[tokio::test]
+    async fn test_port_manager_default() {
+        let port_manager = PortManager::default();
+
+        // デフォルトのPortManagerが正常に作成されることを確認
+        assert!(std::ptr::addr_of!(port_manager) as *const PortManager != std::ptr::null());
+    }
+
+    #[test]
+    fn test_process_info_with_different_protocols() {
+        // 異なるプロトコルでのProcessInfoをテスト
+        for protocol in ["tcp", "udp", "tcp6", "udp6"] {
+            let process_info = ProcessInfo {
+                pid: 1234,
+                name: "test_process".to_string(),
+                command: "/usr/bin/test_process".to_string(),
+                executable_path: "/usr/bin/test_process".to_string(),
+                working_directory: "/home/user/project".to_string(),
+                port: 8080,
+                protocol: protocol.to_string(),
+                address: "127.0.0.1".to_string(),
+                inode: Some(12345),
+            };
+
+            assert_eq!(process_info.protocol, protocol);
+            assert!(process_info.protocol.len() >= 3);
+        }
+    }
+
+    #[test]
+    fn test_process_info_edge_cases() {
+        // エッジケースのProcessInfoをテスト
+        let edge_cases = [
+            (1, 1, "0.0.0.0"),          // 最小ポート、すべてのアドレス
+            (65535, 65535, "::1"),      // 最大ポート、IPv6ローカルホスト
+            (1, 22, "127.0.0.1"),       // 一般的なSSHポート
+            (65535, 80, "192.168.1.1"), // HTTPポート、プライベートIP
+        ];
+
+        for (pid, port, address) in edge_cases {
+            let process_info = ProcessInfo {
+                pid,
+                name: "test".to_string(),
+                command: "test".to_string(),
+                executable_path: "/usr/bin/test".to_string(),
+                working_directory: "/".to_string(),
+                port,
+                protocol: "tcp".to_string(),
+                address: address.to_string(),
+                inode: Some(12345),
+            };
+
+            assert!(process_info.pid >= 1);
+            // u16型なので範囲は自動的に0-65535に制限される
+            assert!(process_info.port > 0);
+            assert!(!process_info.address.is_empty());
+        }
     }
 }
