@@ -18,7 +18,7 @@ async fn test_check_command_with_unused_port() {
             // Accept any error in CI environment - the test is mainly to ensure no panic
             let error_msg = e.to_string();
             // Just log the error and continue - this test is about ensuring graceful error handling
-            eprintln!("CheckCommand error (expected in CI): {}", error_msg);
+            eprintln!("CheckCommand error (expected in CI): {error_msg}");
         }
     }
 }
@@ -82,7 +82,7 @@ async fn test_list_command_port_range_parsing() {
             // Accept any error in CI environment - the test is mainly to ensure no panic
             let error_msg = e.to_string();
             // Just log the error and continue - this test is about ensuring graceful error handling
-            eprintln!("ListCommand error (expected in CI): {}", error_msg);
+            eprintln!("ListCommand error (expected in CI): {error_msg}");
         }
     }
 }

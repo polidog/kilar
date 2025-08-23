@@ -4,7 +4,6 @@ use kilar::port::{
     incremental::IncrementalPortManager,
     PortManager,
 };
-use std::time::Duration;
 use tokio::runtime::Runtime;
 
 fn benchmark_legacy_list(c: &mut Criterion) {
@@ -126,7 +125,7 @@ fn benchmark_cache_efficiency(c: &mut Criterion) {
     });
 
     c.bench_function("incremental_cache_warm", |b| {
-        b.to_async(&rt).iter_batched_ref(
+        b.to_async(&rt).iter_batched(
             || {
                 let mut manager = IncrementalPortManager::new(PerformanceProfile::Balanced);
                 rt.block_on(async {
@@ -134,7 +133,7 @@ fn benchmark_cache_efficiency(c: &mut Criterion) {
                 });
                 manager
             },
-            |port_manager| async {
+            |mut port_manager| async move {
                 let result = port_manager.get_processes("tcp").await;
                 black_box(result)
             },

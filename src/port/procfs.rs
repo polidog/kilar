@@ -266,7 +266,7 @@ impl ProcfsPortManager {
 
     /// Scan process file descriptors to find socket inodes
     async fn scan_process_fds(&self, pid: u32, inode_to_pid: &mut HashMap<u64, u32>) {
-        let fd_path = format!("/proc/{}/fd", pid);
+        let fd_path = format!("/proc/{pid}/fd");
         if let Ok(mut fd_entries) = tokio_fs::read_dir(&fd_path).await {
             while let Ok(Some(fd_entry)) = fd_entries.next_entry().await {
                 if let Ok(link_target) = tokio_fs::read_link(fd_entry.path()).await {
@@ -323,12 +323,12 @@ impl ProcfsPortManager {
         };
 
         // Read process name from /proc/pid/comm
-        if let Ok(name) = tokio_fs::read_to_string(format!("/proc/{}/comm", pid)).await {
+        if let Ok(name) = tokio_fs::read_to_string(format!("/proc/{pid}/comm")).await {
             details.name = name.trim().to_string();
         }
 
         // Read command line from /proc/pid/cmdline
-        if let Ok(cmdline) = tokio_fs::read(format!("/proc/{}/cmdline", pid)).await {
+        if let Ok(cmdline) = tokio_fs::read(format!("/proc/{pid}/cmdline")).await {
             let command = String::from_utf8_lossy(&cmdline)
                 .replace('\0', " ")
                 .trim()
@@ -343,14 +343,14 @@ impl ProcfsPortManager {
         }
 
         // Read working directory from /proc/pid/cwd
-        if let Ok(cwd) = tokio_fs::read_link(format!("/proc/{}/cwd", pid)).await {
+        if let Ok(cwd) = tokio_fs::read_link(format!("/proc/{pid}/cwd")).await {
             if let Some(cwd_str) = cwd.to_str() {
                 details.working_directory = cwd_str.to_string();
             }
         }
 
         // Try to get actual executable path from /proc/pid/exe
-        if let Ok(exe) = tokio_fs::read_link(format!("/proc/{}/exe", pid)).await {
+        if let Ok(exe) = tokio_fs::read_link(format!("/proc/{pid}/exe")).await {
             if let Some(exe_str) = exe.to_str() {
                 details.executable_path = exe_str.to_string();
             }

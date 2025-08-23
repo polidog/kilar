@@ -87,7 +87,7 @@ impl KillCommand {
                 }
             }
             None => {
-                let error_msg = format!("Port {}:{} is not in use", protocol.to_uppercase(), port);
+                let error_msg = format!("Port {}:{port} is not in use", protocol.to_uppercase());
                 if json {
                     let json_output = serde_json::json!({
                         "port": port,

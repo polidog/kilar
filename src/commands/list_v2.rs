@@ -189,11 +189,11 @@ impl ListCommandV2 {
     fn parse_port_range(range: &str) -> Result<(u16, u16)> {
         if let Some((start_str, end_str)) = range.split_once('-') {
             let start = start_str.parse::<u16>().map_err(|_| {
-                crate::Error::InvalidPort(format!("Invalid start port: {}", start_str))
+                crate::Error::InvalidPort(format!("Invalid start port: {start_str}"))
             })?;
             let end = end_str
                 .parse::<u16>()
-                .map_err(|_| crate::Error::InvalidPort(format!("Invalid end port: {}", end_str)))?;
+                .map_err(|_| crate::Error::InvalidPort(format!("Invalid end port: {end_str}")))?;
 
             if start > end {
                 return Err(crate::Error::InvalidPort(

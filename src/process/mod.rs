@@ -19,7 +19,7 @@ impl ProcessManager {
             .arg(pid.to_string())
             .output()
             .await
-            .map_err(|e| crate::Error::CommandFailed(format!("kill command failed: {}", e)))?;
+            .map_err(|e| crate::Error::CommandFailed(format!("kill command failed: {e}")))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -31,8 +31,7 @@ impl ProcessManager {
                 ));
             }
             return Err(crate::Error::CommandFailed(format!(
-                "Failed to kill process: {}",
-                stderr
+                "Failed to kill process: {stderr}"
             )));
         }
 
@@ -47,13 +46,12 @@ impl ProcessManager {
                 .arg(pid.to_string())
                 .output()
                 .await
-                .map_err(|e| crate::Error::CommandFailed(format!("kill -KILL failed: {}", e)))?;
+                .map_err(|e| crate::Error::CommandFailed(format!("kill -KILL failed: {e}")))?;
 
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 return Err(crate::Error::CommandFailed(format!(
-                    "Failed to force kill process: {}",
-                    stderr
+                    "Failed to force kill process: {stderr}"
                 )));
             }
         }
@@ -71,7 +69,7 @@ impl ProcessManager {
             .arg(pid.to_string())
             .output()
             .await
-            .map_err(|e| crate::Error::CommandFailed(format!("ps command failed: {}", e)))?;
+            .map_err(|e| crate::Error::CommandFailed(format!("ps command failed: {e}")))?;
 
         Ok(output.status.success())
     }
@@ -88,7 +86,7 @@ impl ProcessManager {
             .arg("comm=,command=")
             .output()
             .await
-            .map_err(|e| crate::Error::CommandFailed(format!("ps command failed: {}", e)))?;
+            .map_err(|e| crate::Error::CommandFailed(format!("ps command failed: {e}")))?;
 
         if output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);

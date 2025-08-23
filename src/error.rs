@@ -27,32 +27,30 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Error::IoError(msg) => write!(f, "I/O error: {}", msg),
-            Error::ParseError(msg) => write!(f, "Parse error: {}", msg),
-            Error::PortNotFound(port) => write!(f, "Port {} is not in use", port),
+            Error::IoError(msg) => write!(f, "I/O error: {msg}"),
+            Error::ParseError(msg) => write!(f, "Parse error: {msg}"),
+            Error::PortNotFound(port) => write!(f, "Port {port} is not in use"),
             Error::PermissionDenied(msg) => {
                 write!(
                     f,
-                    "Permission denied: {}. Try running with 'sudo' for system processes",
-                    msg
+                    "Permission denied: {msg}. Try running with 'sudo' for system processes"
                 )
             }
-            Error::ProcessNotFound(pid) => write!(f, "Process with PID {} not found", pid),
+            Error::ProcessNotFound(pid) => write!(f, "Process with PID {pid} not found"),
             Error::InvalidPort(msg) => {
-                write!(f, "Invalid port: {}. Port must be between 1 and 65535", msg)
+                write!(f, "Invalid port: {msg}. Port must be between 1 and 65535")
             }
             Error::CommandFailed(msg) => {
                 if msg.contains("lsof") || msg.contains("netstat") {
                     write!(
                         f,
-                        "Command failed: {}. Make sure required system tools are installed",
-                        msg
+                        "Command failed: {msg}. Make sure required system tools are installed"
                     )
                 } else {
-                    write!(f, "Command execution failed: {}", msg)
+                    write!(f, "Command execution failed: {msg}")
                 }
             }
-            Error::Other(msg) => write!(f, "{}", msg),
+            Error::Other(msg) => write!(f, "{msg}"),
         }
     }
 }

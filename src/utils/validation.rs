@@ -13,8 +13,7 @@ pub fn validate_protocol(protocol: &str) -> Result<()> {
     match protocol.to_lowercase().as_str() {
         "tcp" | "udp" | "all" => Ok(()),
         _ => Err(crate::Error::InvalidPort(format!(
-            "Invalid protocol '{}'. Must be tcp, udp, or all",
-            protocol
+            "Invalid protocol '{protocol}'. Must be tcp, udp, or all"
         ))),
     }
 }
@@ -23,8 +22,7 @@ pub fn validate_sort_option(sort: &str) -> Result<()> {
     match sort.to_lowercase().as_str() {
         "port" | "pid" | "name" => Ok(()),
         _ => Err(crate::Error::Other(format!(
-            "Invalid sort option '{}'. Must be port, pid, or name",
-            sort
+            "Invalid sort option '{sort}'. Must be port, pid, or name"
         ))),
     }
 }

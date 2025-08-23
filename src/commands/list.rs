@@ -6,9 +6,23 @@ use crate::{
 use colored::Colorize;
 use dialoguer::{Confirm, MultiSelect};
 
+#[derive(Debug)]
+pub struct ListOptions {
+    pub ports_range: Option<String>,
+    pub filter: Option<String>,
+    pub sort: String,
+    pub protocol: String,
+    pub kill: bool,
+    pub quiet: bool,
+    pub json: bool,
+    pub performance_mode: Option<String>,
+    pub watch: bool,
+}
+
 pub struct ListCommand;
 
 impl ListCommand {
+    #[allow(clippy::too_many_arguments)]
     pub async fn execute(
         ports_range: Option<String>,
         filter: Option<String>,
@@ -20,7 +34,23 @@ impl ListCommand {
         performance_mode: Option<&str>,
         watch: bool,
     ) -> Result<()> {
-        let profile = match performance_mode {
+        let options = ListOptions {
+            ports_range,
+            filter,
+            sort: sort.to_string(),
+            protocol: protocol.to_string(),
+            kill,
+            quiet,
+            json,
+            performance_mode: performance_mode.map(|s| s.to_string()),
+            watch,
+        };
+
+        Self::execute_with_options(options).await
+    }
+
+    pub async fn execute_with_options(options: ListOptions) -> Result<()> {
+        let profile = match options.performance_mode.as_deref() {
             Some("fast") => PerformanceProfile::Fast,
             Some("complete") => PerformanceProfile::Complete,
             _ => PerformanceProfile::Balanced,
@@ -28,23 +58,32 @@ impl ListCommand {
 
         let mut manager = IncrementalPortManager::new(profile);
 
-        if watch {
-            Self::execute_watch_mode(&mut manager, protocol, ports_range, filter, sort, quiet).await
+        if options.watch {
+            Self::execute_watch_mode(
+                &mut manager,
+                &options.protocol,
+                options.ports_range,
+                options.filter,
+                &options.sort,
+                options.quiet,
+            )
+            .await
         } else {
             Self::execute_single_run(
                 &mut manager,
-                ports_range,
-                filter,
-                sort,
-                protocol,
-                kill,
-                quiet,
-                json,
+                options.ports_range,
+                options.filter,
+                &options.sort,
+                &options.protocol,
+                options.kill,
+                options.quiet,
+                options.json,
             )
             .await
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn execute_single_run(
         manager: &mut IncrementalPortManager,
         ports_range: Option<String>,
@@ -116,11 +155,11 @@ impl ListCommand {
     pub(crate) fn parse_port_range(range: &str) -> Result<(u16, u16)> {
         if let Some((start_str, end_str)) = range.split_once('-') {
             let start = start_str.parse::<u16>().map_err(|_| {
-                crate::Error::InvalidPort(format!("Invalid start port: {}", start_str))
+                crate::Error::InvalidPort(format!("Invalid start port: {start_str}"))
             })?;
             let end = end_str
                 .parse::<u16>()
-                .map_err(|_| crate::Error::InvalidPort(format!("Invalid end port: {}", end_str)))?;
+                .map_err(|_| crate::Error::InvalidPort(format!("Invalid end port: {end_str}")))?;
 
             if start > end {
                 return Err(crate::Error::InvalidPort(

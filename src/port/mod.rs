@@ -71,16 +71,14 @@ impl PortManager {
 
         let output = cmd.output().await.map_err(|e| {
             crate::Error::CommandFailed(format!(
-                "lsof command failed: {}. Make sure required system tools are installed",
-                e
+                "lsof command failed: {e}. Make sure required system tools are installed"
             ))
         })?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(crate::Error::CommandFailed(format!(
-                "lsof failed: {}. Make sure required system tools are installed",
-                stderr
+                "lsof failed: {stderr}. Make sure required system tools are installed"
             )));
         }
 
@@ -111,14 +109,11 @@ impl PortManager {
         let output = cmd
             .output()
             .await
-            .map_err(|e| crate::Error::CommandFailed(format!("ss command failed: {}", e)))?;
+            .map_err(|e| crate::Error::CommandFailed(format!("ss command failed: {e}")))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(crate::Error::CommandFailed(format!(
-                "ss failed: {}",
-                stderr
-            )));
+            return Err(crate::Error::CommandFailed(format!("ss failed: {stderr}")));
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -148,13 +143,12 @@ impl PortManager {
         let output = cmd
             .output()
             .await
-            .map_err(|e| crate::Error::CommandFailed(format!("netstat command failed: {}", e)))?;
+            .map_err(|e| crate::Error::CommandFailed(format!("netstat command failed: {e}")))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(crate::Error::CommandFailed(format!(
-                "netstat failed: {}",
-                stderr
+                "netstat failed: {stderr}"
             )));
         }
 
