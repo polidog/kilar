@@ -1,23 +1,23 @@
 class Kilar < Formula
   desc "Powerful CLI tool for managing port processes"
   homepage "https://github.com/polidog/kilar"
-  version "0.1.1"
+  version "0.2.0"
   license "MIT"
 
   on_macos do
     if Hardware::CPU.intel?
       url "https://github.com/polidog/kilar/releases/download/v#{version}/kilar-v#{version}-x86_64-apple-darwin.tar.gz"
-      sha256 "e59be0721183dc2c6652ff93eda50421ff08687a45202e9ec2a522ca272bdb60"
+      sha256 "3479238c0490db363a3a9ca0aae68c7629be2625645713c42b57636d5de939a7"
     else
       url "https://github.com/polidog/kilar/releases/download/v#{version}/kilar-v#{version}-aarch64-apple-darwin.tar.gz"
-      sha256 "3dc2839389c363915d037530e822e7d4c0fe9e74fa62565f63d591c0b21b58e4"
+      sha256 "a29f7682871fb492adf440d3084de2ea52125ce7f0cbe36be7840d868cb28b14"
     end
   end
 
   on_linux do
     if Hardware::CPU.intel?
       url "https://github.com/polidog/kilar/releases/download/v#{version}/kilar-v#{version}-x86_64-unknown-linux-gnu.tar.gz"
-      sha256 "ee07fb2101b32f5fcc712fee5c0a42a5060f4363267701459dabb032057d8abe"
+      sha256 "b6d976015ccfdf073b2546c214b966af588ab8641e9e27d2d7ad5ad9bd9c5e2a"
     else
       # Linux ARM version is not currently available
       odie "Linux ARM64 version is not available. Please use x86_64 version or build from source."
