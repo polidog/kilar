@@ -1,8 +1,5 @@
 use crate::{
-    port::{
-        adaptive::PerformanceProfile,
-        incremental::IncrementalPortManager,
-    },
+    port::{adaptive::PerformanceProfile, incremental::IncrementalPortManager},
     process::ProcessManager,
     Result,
 };
