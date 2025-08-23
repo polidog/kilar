@@ -71,7 +71,7 @@ impl PortManager {
         }
 
         // タイムアウト設定で長時間待機を防ぐ
-        let output = tokio::time::timeout(std::time::Duration::from_secs(5), cmd.output())
+        let output = tokio::time::timeout(std::time::Duration::from_secs(1), cmd.output())
             .await
             .map_err(|_| crate::Error::CommandFailed("lsof command timed out".to_string()))?
             .map_err(|e| {
@@ -233,8 +233,9 @@ impl PortManager {
             processes.push((pid, port, protocol, address, command.to_string()));
         }
 
-        // Batch get all process commands at once
+        // Batch get all process commands and extract details from original lsof output
         let commands = self.get_process_commands_batch(&pids).await?;
+        let process_details = self.extract_process_details_from_lsof(output, &pids);
 
         // Build final process list
         let mut final_processes = Vec::new();
@@ -246,24 +247,23 @@ impl PortManager {
 
             let name = self.extract_process_name(&full_command);
 
-            // Get the actual executable path
-            let executable_path = match self.get_process_executable(pid).await {
-                Ok(path) => {
-                    // If we got the same as command (fallback case), extract it
-                    if path == full_command {
+            // Get executable path and working directory from batch results
+            let (executable_path, working_directory) = process_details
+                .get(&pid)
+                .map(|(exe, wd)| {
+                    let final_exe = if exe == "Unknown" || exe == &full_command {
                         self.extract_executable_path(&full_command)
                     } else {
-                        path
-                    }
-                }
-                Err(_) => self.extract_executable_path(&full_command),
-            };
-
-            // Get the working directory
-            let working_directory = self
-                .get_process_working_directory(pid)
-                .await
-                .unwrap_or_else(|_| "Unknown".to_string());
+                        exe.clone()
+                    };
+                    (final_exe, wd.clone())
+                })
+                .unwrap_or_else(|| {
+                    (
+                        self.extract_executable_path(&full_command),
+                        "Unknown".to_string(),
+                    )
+                });
 
             final_processes.push(ProcessInfo {
                 pid,
@@ -332,8 +332,9 @@ impl PortManager {
             temp_processes.push((pid, port, protocol, address));
         }
 
-        // Batch get all process commands
+        // Batch get all process commands and details
         let commands = self.get_process_commands_batch(&pids).await?;
+        let process_details = self.get_process_details_batch_fast(&pids).await?;
 
         for (pid, port, protocol, address) in temp_processes {
             let full_command = commands
@@ -343,24 +344,23 @@ impl PortManager {
 
             let name = self.extract_process_name(&full_command);
 
-            // Get the actual executable path
-            let executable_path = match self.get_process_executable(pid).await {
-                Ok(path) => {
-                    // If we got the same as command (fallback case), extract it
-                    if path == full_command {
+            // Get executable path and working directory from batch results
+            let (executable_path, working_directory) = process_details
+                .get(&pid)
+                .map(|(exe, wd)| {
+                    let final_exe = if exe == "Unknown" || exe == &full_command {
                         self.extract_executable_path(&full_command)
                     } else {
-                        path
-                    }
-                }
-                Err(_) => self.extract_executable_path(&full_command),
-            };
-
-            // Get the working directory
-            let working_directory = self
-                .get_process_working_directory(pid)
-                .await
-                .unwrap_or_else(|_| "Unknown".to_string());
+                        exe.clone()
+                    };
+                    (final_exe, wd.clone())
+                })
+                .unwrap_or_else(|| {
+                    (
+                        self.extract_executable_path(&full_command),
+                        "Unknown".to_string(),
+                    )
+                });
 
             processes.push(ProcessInfo {
                 pid,
@@ -429,8 +429,9 @@ impl PortManager {
             temp_processes.push((pid, port, protocol, address, process_info.to_string()));
         }
 
-        // Batch get all process commands
+        // Batch get all process commands and details
         let commands = self.get_process_commands_batch(&pids).await?;
+        let process_details = self.get_process_details_batch_fast(&pids).await?;
 
         for (pid, port, protocol, address, fallback_info) in temp_processes {
             let full_command = commands
@@ -440,24 +441,23 @@ impl PortManager {
 
             let name = self.extract_process_name(&full_command);
 
-            // Get the actual executable path
-            let executable_path = match self.get_process_executable(pid).await {
-                Ok(path) => {
-                    // If we got the same as command (fallback case), extract it
-                    if path == full_command {
+            // Get executable path and working directory from batch results
+            let (executable_path, working_directory) = process_details
+                .get(&pid)
+                .map(|(exe, wd)| {
+                    let final_exe = if exe == "Unknown" || exe == &full_command {
                         self.extract_executable_path(&full_command)
                     } else {
-                        path
-                    }
-                }
-                Err(_) => self.extract_executable_path(&full_command),
-            };
-
-            // Get the working directory
-            let working_directory = self
-                .get_process_working_directory(pid)
-                .await
-                .unwrap_or_else(|_| "Unknown".to_string());
+                        exe.clone()
+                    };
+                    (final_exe, wd.clone())
+                })
+                .unwrap_or_else(|| {
+                    (
+                        self.extract_executable_path(&full_command),
+                        "Unknown".to_string(),
+                    )
+                });
 
             processes.push(ProcessInfo {
                 pid,
@@ -676,6 +676,136 @@ impl PortManager {
         }
 
         Ok(commands)
+    }
+
+    // 最初のlsof出力から実行可能ファイルパスと作業ディレクトリを一括抽出
+    fn extract_process_details_from_lsof(
+        &self,
+        output: &str,
+        pids: &[u32],
+    ) -> HashMap<u32, (String, String)> {
+        let mut process_details = HashMap::new();
+        let mut current_pid = None;
+        let mut current_exe = None;
+        let mut current_wd = None;
+
+        for line in output.lines() {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 9 {
+                // Extract PID from first column
+                if let Ok(pid) = parts[1].parse::<u32>() {
+                    // If we have a complete set from previous PID, save it
+                    if let Some(prev_pid) = current_pid {
+                        if pids.contains(&prev_pid) {
+                            process_details.insert(
+                                prev_pid,
+                                (
+                                    current_exe.take().unwrap_or_else(|| "Unknown".to_string()),
+                                    current_wd.take().unwrap_or_else(|| "Unknown".to_string()),
+                                ),
+                            );
+                        }
+                    }
+
+                    // Start tracking new PID if it's in our list
+                    if pids.contains(&pid) {
+                        current_pid = Some(pid);
+                        current_exe = None;
+                        current_wd = None;
+                    } else {
+                        current_pid = None;
+                    }
+                }
+
+                // Only process if we're tracking this PID
+                if current_pid.is_some() {
+                    // Check for executable (txt REG)
+                    if parts[3] == "txt" && parts[4] == "REG" && current_exe.is_none() {
+                        let path = parts[8..].join(" ");
+                        current_exe = Some(path);
+                    }
+                    // Check for working directory (cwd DIR)
+                    else if parts[3] == "cwd" && parts[4] == "DIR" && current_wd.is_none() {
+                        let path = parts[8..].join(" ");
+                        current_wd = Some(path);
+                    }
+                }
+            }
+        }
+
+        // Don't forget the last PID
+        if let Some(prev_pid) = current_pid {
+            if pids.contains(&prev_pid) {
+                process_details.insert(
+                    prev_pid,
+                    (
+                        current_exe.take().unwrap_or_else(|| "Unknown".to_string()),
+                        current_wd.take().unwrap_or_else(|| "Unknown".to_string()),
+                    ),
+                );
+            }
+        }
+
+        process_details
+    }
+
+    // 高速バッチ処理：単一のlsofコールですべてのプロセス詳細を取得
+    async fn get_process_details_batch_fast(
+        &self,
+        pids: &[u32],
+    ) -> Result<HashMap<u32, (String, String)>> {
+        if pids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        // 単一のlsofコマンドですべてのPIDの情報を取得
+        let pid_list = pids
+            .iter()
+            .map(|p| p.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+
+        let output = TokioCommand::new("lsof")
+            .arg("-p")
+            .arg(&pid_list)
+            .output()
+            .await;
+
+        match output {
+            Ok(output) if output.status.success() => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                Ok(self.extract_process_details_from_lsof(&stdout, pids))
+            }
+            _ => {
+                // フォールバック：必要最小限の並列処理
+                let mut process_details = HashMap::new();
+                let futures = pids.iter().take(10).map(|&pid| async move {
+                    let output = TokioCommand::new("lsof")
+                        .arg("-p")
+                        .arg(pid.to_string())
+                        .output()
+                        .await;
+
+                    if let Ok(output) = output {
+                        if output.status.success() {
+                            let stdout = String::from_utf8_lossy(&output.stdout);
+                            return self
+                                .extract_process_details_from_lsof(&stdout, &[pid])
+                                .into_iter()
+                                .next();
+                        }
+                    }
+                    None
+                });
+
+                let results = join_all(futures).await;
+                for result in results.into_iter().flatten() {
+                    process_details.insert(result.0, result.1);
+                }
+
+                Ok(process_details)
+            }
+        }
     }
 }
 
