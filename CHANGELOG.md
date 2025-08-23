@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2025-08-23
+
+### Fixed
+- ポート検出バグを修正（`try_lsof_specific_port`メソッド）
+- lsofコマンドの引数結合問題を解決（`-iTCP :3001` → `-iTCP:3001`）
+- 占有ポートが「available」として誤報告される問題を修正
+- パフォーマンス改善（94%向上）を維持しつつ機能を修復
+
 ## [0.2.1] - 2025-08-23
 
 ### Added
