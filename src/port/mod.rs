@@ -3,8 +3,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::process::Command as TokioCommand;
 
-pub mod adaptive;
-pub mod incremental;
 pub mod procfs;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

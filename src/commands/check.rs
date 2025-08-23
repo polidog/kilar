@@ -1,8 +1,4 @@
-use crate::{
-    port::adaptive::{AdaptivePortManager, PerformanceProfile},
-    process::ProcessManager,
-    Result,
-};
+use crate::{port::PortManager, process::ProcessManager, Result};
 use colored::Colorize;
 use dialoguer::Confirm;
 
@@ -47,7 +43,7 @@ impl CheckCommand {
         verbose: bool,
         interactive: bool,
     ) -> Result<()> {
-        let mut port_manager = AdaptivePortManager::new(PerformanceProfile::Fast);
+        let port_manager = PortManager::new();
 
         match port_manager.check_port(port, protocol).await {
             Ok(Some(process_info)) => {

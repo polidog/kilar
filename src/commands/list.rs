@@ -1,11 +1,8 @@
-use crate::{
-    port::{adaptive::PerformanceProfile, incremental::IncrementalPortManager, PortManager},
-    process::ProcessManager,
-    Result,
-};
+use crate::{port::PortManager, process::ProcessManager, Result};
 use colored::Colorize;
 use dialoguer::{Confirm, MultiSelect};
 use indicatif::{ProgressBar, ProgressStyle};
+use std::time::Duration;
 
 #[derive(Debug)]
 pub struct ListOptions {
@@ -16,7 +13,6 @@ pub struct ListOptions {
     pub kill: bool,
     pub quiet: bool,
     pub json: bool,
-    pub performance_mode: Option<String>,
     pub watch: bool,
 }
 
@@ -32,7 +28,6 @@ impl ListCommand {
         kill: bool,
         quiet: bool,
         json: bool,
-        performance_mode: Option<&str>,
         watch: bool,
     ) -> Result<()> {
         let options = ListOptions {
@@ -43,7 +38,6 @@ impl ListCommand {
             kill,
             quiet,
             json,
-            performance_mode: performance_mode.map(|s| s.to_string()),
             watch,
         };
 
@@ -52,17 +46,8 @@ impl ListCommand {
 
     pub async fn execute_with_options(options: ListOptions) -> Result<()> {
         if options.watch {
-            // Use IncrementalPortManager for watch mode (monitoring)
-            let profile = match options.performance_mode.as_deref() {
-                Some("fast") => PerformanceProfile::Fast,
-                Some("complete") => PerformanceProfile::Complete,
-                _ => PerformanceProfile::Balanced,
-            };
-
-            let mut manager = IncrementalPortManager::new(profile);
-
-            Self::execute_watch_mode(
-                &mut manager,
+            // Use simple watch mode with PortManager
+            Self::execute_simple_watch_mode(
                 &options.protocol,
                 options.ports_range,
                 options.filter,
@@ -394,6 +379,78 @@ impl ListCommand {
         }
 
         Ok(())
+    }
+
+    async fn execute_simple_watch_mode(
+        protocol: &str,
+        ports_range: Option<String>,
+        filter: Option<String>,
+        sort: &str,
+        quiet: bool,
+    ) -> Result<()> {
+        if !quiet {
+            println!(
+                "{} Starting port monitoring... (Press Ctrl+C to stop)",
+                "●".green()
+            );
+            println!();
+        }
+
+        let manager = PortManager::new();
+        let display_interval = Duration::from_secs(1);
+
+        let result = loop {
+            tokio::select! {
+                _ = tokio::time::sleep(display_interval) => {
+                    let mut processes = manager.list_processes(protocol).await?;
+
+                    // Apply same filters as single run
+                    if let Some(ref range) = ports_range {
+                        let (start, end) = Self::parse_port_range(range)?;
+                        processes.retain(|p| p.port >= start && p.port <= end);
+                    }
+
+                    if let Some(ref filter_name) = filter {
+                        processes.retain(|p| p.name.to_lowercase().contains(&filter_name.to_lowercase()));
+                    }
+
+                    match sort {
+                        "port" => processes.sort_by_key(|p| p.port),
+                        "pid" => processes.sort_by_key(|p| p.pid),
+                        "name" => processes.sort_by(|a, b| a.name.cmp(&b.name)),
+                        _ => processes.sort_by_key(|p| p.port),
+                    }
+
+                    // Clear screen and show updated results
+                    if !quiet {
+                        print!("\x1B[2J\x1B[1;1H"); // Clear screen
+                        println!(
+                            "{} Port Monitor - {} | Last updated: {}",
+                            "●".green(),
+                            protocol.to_uppercase(),
+                            chrono::Utc::now().format("%H:%M:%S")
+                        );
+                        println!();
+
+                        if processes.is_empty() {
+                            println!("{} No ports in use found", "○".blue());
+                        } else {
+                            Self::print_table(&processes);
+                        }
+                    }
+                }
+                _ = tokio::signal::ctrl_c() => {
+                    break Ok(());
+                }
+            }
+        };
+
+        if !quiet {
+            println!();
+            println!("{} Monitoring stopped", "○".blue());
+        }
+
+        result
     }
 }
 
