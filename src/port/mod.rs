@@ -1,5 +1,6 @@
 use crate::Result;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tokio::process::Command as TokioCommand;
 
 pub mod adaptive;
@@ -18,6 +19,12 @@ pub struct ProcessInfo {
     pub address: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inode: Option<u64>, // For procfs-based implementation
+}
+
+#[derive(Debug, Clone)]
+struct ProcessDetails {
+    executable_path: String,
+    working_directory: String,
 }
 
 pub struct PortManager;
@@ -47,6 +54,82 @@ impl PortManager {
         }
 
         self.try_netstat_unix(protocol).await
+    }
+
+    /// Get process details for multiple PIDs in a single lsof command
+    async fn get_all_process_details(&self, pids: &[u32]) -> Result<HashMap<u32, ProcessDetails>> {
+        if pids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let mut details_map = HashMap::new();
+
+        // Build PID list for lsof -p option
+        let pid_list = pids
+            .iter()
+            .map(|pid| pid.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+
+        let output = TokioCommand::new("lsof")
+            .arg("-p")
+            .arg(&pid_list)
+            .output()
+            .await;
+
+        if let Ok(output) = output {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+
+                // Parse lsof output to extract executable paths and working directories
+                for line in stdout.lines() {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 9 {
+                        if let Ok(pid) = parts[1].parse::<u32>() {
+                            if pids.contains(&pid) {
+                                let entry =
+                                    details_map.entry(pid).or_insert_with(|| ProcessDetails {
+                                        executable_path: "Unknown".to_string(),
+                                        working_directory: "Unknown".to_string(),
+                                    });
+
+                                // Check for executable (txt REG)
+                                if parts[3] == "txt" && parts[4] == "REG" {
+                                    let path = parts[8..].join(" ");
+
+                                    // Filter out system libraries, prefer application executables
+                                    if !path.contains("/usr/lib")
+                                        && !path.contains("/System/Library")
+                                        && !path.contains("/usr/share")
+                                        && !path.contains("/Library/Preferences/Logging")
+                                        && !path.contains("/private/var/db")
+                                        && !path.ends_with("/dyld")
+                                    {
+                                        entry.executable_path = path;
+                                    }
+                                }
+
+                                // Check for working directory (cwd DIR)
+                                if parts[3] == "cwd" && parts[4] == "DIR" {
+                                    let path = parts[8..].join(" ");
+                                    entry.working_directory = path;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fill in defaults for PIDs that weren't found
+        for &pid in pids {
+            details_map.entry(pid).or_insert_with(|| ProcessDetails {
+                executable_path: "Unknown".to_string(),
+                working_directory: "Unknown".to_string(),
+            });
+        }
+
+        Ok(details_map)
     }
 
     async fn try_lsof(&self, protocol: &str) -> Result<Vec<ProcessInfo>> {
@@ -158,7 +241,9 @@ impl PortManager {
 
     async fn parse_lsof_output(&self, output: &str, _protocol: &str) -> Result<Vec<ProcessInfo>> {
         let mut processes = Vec::new();
+        let mut basic_process_info = Vec::new();
 
+        // First pass: collect basic process info and PIDs
         for line in output.lines().skip(1) {
             // ヘッダー行をスキップ
             let fields: Vec<&str> = line.split_whitespace().collect();
@@ -217,32 +302,43 @@ impl PortManager {
             }
             .to_string();
 
-            // プロセス情報を取得（完全なコマンドライン）
-            let full_command = match self.get_process_command(pid).await {
-                Ok(cmd) => cmd,
-                Err(_) => command.to_string(),
-            };
+            basic_process_info.push((pid, command, port, protocol, address));
+        }
+
+        // Extract unique PIDs for batch processing
+        let pids: Vec<u32> = basic_process_info
+            .iter()
+            .map(|(pid, _, _, _, _)| *pid)
+            .collect();
+
+        // Get all process details in a single lsof call
+        let process_details = self.get_all_process_details(&pids).await?;
+
+        // Second pass: build ProcessInfo with detailed information
+        for (pid, command, port, protocol, address) in basic_process_info {
+            // Use command from lsof as fallback instead of calling ps individually
+            let full_command = command.to_string();
 
             let name = self.extract_process_name(&full_command);
 
-            // Get the actual executable path
-            let executable_path = match self.get_process_executable(pid).await {
-                Ok(path) => {
-                    // If we got the same as command (fallback case), extract it
-                    if path == full_command {
-                        self.extract_executable_path(&full_command)
+            // Get details from batch result
+            let (executable_path, working_directory) =
+                if let Some(details) = process_details.get(&pid) {
+                    let executable_path = if details.executable_path != "Unknown" {
+                        details.executable_path.clone()
                     } else {
-                        path
-                    }
-                }
-                Err(_) => self.extract_executable_path(&full_command),
-            };
+                        // Fallback to extracting from command line
+                        self.extract_executable_path(&full_command)
+                    };
 
-            // Get the working directory
-            let working_directory = self
-                .get_process_working_directory(pid)
-                .await
-                .unwrap_or_else(|_| "Unknown".to_string());
+                    (executable_path, details.working_directory.clone())
+                } else {
+                    // Fallback if batch processing failed
+                    (
+                        self.extract_executable_path(&full_command),
+                        "Unknown".to_string(),
+                    )
+                };
 
             processes.push(ProcessInfo {
                 pid,

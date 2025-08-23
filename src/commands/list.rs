@@ -1,5 +1,5 @@
 use crate::{
-    port::{adaptive::PerformanceProfile, incremental::IncrementalPortManager},
+    port::{adaptive::PerformanceProfile, incremental::IncrementalPortManager, PortManager},
     process::ProcessManager,
     Result,
 };
@@ -50,15 +50,16 @@ impl ListCommand {
     }
 
     pub async fn execute_with_options(options: ListOptions) -> Result<()> {
-        let profile = match options.performance_mode.as_deref() {
-            Some("fast") => PerformanceProfile::Fast,
-            Some("complete") => PerformanceProfile::Complete,
-            _ => PerformanceProfile::Balanced,
-        };
-
-        let mut manager = IncrementalPortManager::new(profile);
-
         if options.watch {
+            // Use IncrementalPortManager for watch mode (monitoring)
+            let profile = match options.performance_mode.as_deref() {
+                Some("fast") => PerformanceProfile::Fast,
+                Some("complete") => PerformanceProfile::Complete,
+                _ => PerformanceProfile::Balanced,
+            };
+            
+            let mut manager = IncrementalPortManager::new(profile);
+            
             Self::execute_watch_mode(
                 &mut manager,
                 &options.protocol,
@@ -69,8 +70,8 @@ impl ListCommand {
             )
             .await
         } else {
-            Self::execute_single_run(
-                &mut manager,
+            // Use lightweight PortManager for single runs
+            Self::execute_single_run_simple(
                 options.ports_range,
                 options.filter,
                 &options.sort,
@@ -84,8 +85,7 @@ impl ListCommand {
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn execute_single_run(
-        manager: &mut IncrementalPortManager,
+    async fn execute_single_run_simple(
         ports_range: Option<String>,
         filter: Option<String>,
         sort: &str,
@@ -94,7 +94,9 @@ impl ListCommand {
         quiet: bool,
         json: bool,
     ) -> Result<()> {
-        let mut processes = manager.get_processes(protocol).await?;
+        // Use lightweight PortManager directly
+        let manager = PortManager::new();
+        let mut processes = manager.list_processes(protocol).await?;
 
         // ポート範囲フィルタリング
         if let Some(range) = ports_range {
@@ -116,16 +118,13 @@ impl ListCommand {
         }
 
         if json {
-            let stats = manager.get_performance_stats().await;
             let json_output = serde_json::json!({
                 "protocol": protocol,
                 "total_processes": processes.len(),
                 "processes": processes,
                 "performance": {
-                    "procfs_available": stats.procfs_available,
-                    "profile": format!("{:?}", stats.current_profile),
-                    "procfs_time_ms": stats.procfs_performance.map(|d| d.as_millis()),
-                    "legacy_time_ms": stats.legacy_performance.map(|d| d.as_millis()),
+                    "mode": "simple",
+                    "manager": "PortManager"
                 }
             });
             println!("{}", serde_json::to_string_pretty(&json_output)?);

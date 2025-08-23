@@ -48,12 +48,8 @@ impl AdaptivePortManager {
     pub async fn list_processes(&mut self, protocol: &str) -> Result<Vec<ProcessInfo>> {
         match self.performance_profile {
             PerformanceProfile::Fast => {
-                if self.use_procfs {
-                    self.procfs_manager.list_processes(protocol).await
-                } else {
-                    // Fast fallback - use legacy with minimal options
-                    self.legacy_manager.list_processes(protocol).await
-                }
+                // Always use legacy for fast mode as it's simpler and more reliable
+                self.legacy_manager.list_processes(protocol).await
             }
             PerformanceProfile::Balanced => self.list_processes_balanced(protocol).await,
             PerformanceProfile::Complete => self.list_processes_complete(protocol).await,
@@ -90,17 +86,29 @@ impl AdaptivePortManager {
         let should_benchmark = self.last_performance_check.is_none()
             || self.last_performance_check.map_or(
                 true,
-                |last| last.elapsed() > std::time::Duration::from_secs(300), // Re-benchmark every 5 minutes
+                |last| last.elapsed() > std::time::Duration::from_secs(1800), // Re-benchmark every 30 minutes
             );
 
         if should_benchmark {
-            self.benchmark_performance(protocol).await?;
+            // Only benchmark if performance difference is potentially significant
+            if self.procfs_performance.is_none() || self.legacy_performance.is_none() {
+                self.benchmark_performance(protocol).await?;
+            } else if let (Some(procfs), Some(legacy)) = (self.procfs_performance, self.legacy_performance) {
+                // Only re-benchmark if there's no clear winner (within 20% performance difference)
+                let ratio = procfs.as_secs_f64() / legacy.as_secs_f64();
+                if ratio > 0.8 && ratio < 1.2 {
+                    self.benchmark_performance(protocol).await?;
+                } else {
+                    // Clear winner exists, just update timestamp without benchmarking
+                    self.last_performance_check = Some(Instant::now());
+                }
+            }
         }
 
-        // Choose the faster method
+        // Choose the faster method, defaulting to legacy for simplicity
         let use_procfs = match (self.procfs_performance, self.legacy_performance) {
             (Some(procfs_time), Some(legacy_time)) => procfs_time < legacy_time,
-            _ => self.use_procfs, // Default to procfs availability
+            _ => false, // Default to legacy instead of procfs
         };
 
         if use_procfs && self.use_procfs {
