@@ -1,5 +1,7 @@
 use crate::Result;
+use futures::future::join_all;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tokio::process::Command as TokioCommand;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,26 +33,31 @@ impl PortManager {
     }
 
     async fn list_processes_unix(&self, protocol: &str) -> Result<Vec<ProcessInfo>> {
-        // Try lsof first, fallback to ss, then netstat
-        if let Ok(result) = self.try_lsof(protocol).await {
+        // Try lsof first with optimizations
+        if let Ok(result) = self.try_lsof_optimized(protocol).await {
             return Ok(result);
         }
 
+        // Fallback to ss
         if let Ok(result) = self.try_ss(protocol).await {
             return Ok(result);
         }
 
+        // Final fallback to netstat
         self.try_netstat_unix(protocol).await
     }
 
-    async fn try_lsof(&self, protocol: &str) -> Result<Vec<ProcessInfo>> {
+    async fn try_lsof_optimized(&self, protocol: &str) -> Result<Vec<ProcessInfo>> {
         let mut cmd = TokioCommand::new("lsof");
-        cmd.arg("-n") // 数値表示（ホスト名解決なし）
-            .arg("-P"); // ポート番号を数値表示
+
+        // 最適化されたフラグ
+        cmd.arg("-n") // ホスト名解決をスキップ
+            .arg("-P") // ポート名解決をスキップ
+            .arg("-w"); // 警告を抑制（高速化）
 
         match protocol.to_lowercase().as_str() {
             "tcp" => {
-                cmd.arg("-iTCP").arg("-sTCP:LISTEN"); // リスニング状態のみ（TCP）
+                cmd.arg("-iTCP").arg("-sTCP:LISTEN");
             }
             "udp" => {
                 cmd.arg("-iUDP");
@@ -59,16 +66,20 @@ impl PortManager {
                 cmd.arg("-i");
             }
             _ => {
-                cmd.arg("-iTCP").arg("-sTCP:LISTEN"); // デフォルトはTCP
+                cmd.arg("-iTCP").arg("-sTCP:LISTEN");
             }
         }
 
-        let output = cmd.output().await.map_err(|e| {
-            crate::Error::CommandFailed(format!(
-                "lsof command failed: {}. Make sure required system tools are installed",
-                e
-            ))
-        })?;
+        // タイムアウト設定で長時間待機を防ぐ
+        let output = tokio::time::timeout(std::time::Duration::from_secs(5), cmd.output())
+            .await
+            .map_err(|_| crate::Error::CommandFailed("lsof command timed out".to_string()))?
+            .map_err(|e| {
+                crate::Error::CommandFailed(format!(
+                    "lsof command failed: {}. Make sure required system tools are installed",
+                    e
+                ))
+            })?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -79,26 +90,27 @@ impl PortManager {
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        self.parse_lsof_output(&stdout, protocol).await
+
+        // バッチでプロセス情報を取得
+        self.parse_lsof_output_batch(&stdout, protocol).await
     }
 
     async fn try_ss(&self, protocol: &str) -> Result<Vec<ProcessInfo>> {
         let mut cmd = TokioCommand::new("ss");
-        cmd.arg("-n") // 数値表示
-            .arg("-p"); // プロセス情報表示
+        cmd.arg("-n").arg("-p");
 
         match protocol.to_lowercase().as_str() {
             "tcp" => {
-                cmd.arg("-lt"); // TCP listening
+                cmd.arg("-lt");
             }
             "udp" => {
-                cmd.arg("-lu"); // UDP
+                cmd.arg("-lu");
             }
             "all" => {
-                cmd.arg("-ltu"); // TCP and UDP
+                cmd.arg("-ltu");
             }
             _ => {
-                cmd.arg("-lt"); // デフォルトはTCP
+                cmd.arg("-lt");
             }
         }
 
@@ -121,21 +133,20 @@ impl PortManager {
 
     async fn try_netstat_unix(&self, protocol: &str) -> Result<Vec<ProcessInfo>> {
         let mut cmd = TokioCommand::new("netstat");
-        cmd.arg("-n") // 数値表示
-            .arg("-p"); // プロセス情報表示
+        cmd.arg("-n").arg("-p");
 
         match protocol.to_lowercase().as_str() {
             "tcp" => {
-                cmd.arg("-lt"); // TCP listening
+                cmd.arg("-lt");
             }
             "udp" => {
-                cmd.arg("-lu"); // UDP
+                cmd.arg("-lu");
             }
             "all" => {
-                cmd.arg("-ltu"); // TCP and UDP
+                cmd.arg("-ltu");
             }
             _ => {
-                cmd.arg("-lt"); // デフォルトはTCP
+                cmd.arg("-lt");
             }
         }
 
@@ -156,11 +167,16 @@ impl PortManager {
         self.parse_netstat_unix_output(&stdout, protocol).await
     }
 
-    async fn parse_lsof_output(&self, output: &str, _protocol: &str) -> Result<Vec<ProcessInfo>> {
+    async fn parse_lsof_output_batch(
+        &self,
+        output: &str,
+        _protocol: &str,
+    ) -> Result<Vec<ProcessInfo>> {
         let mut processes = Vec::new();
+        let mut pids = Vec::new();
 
+        // First pass: collect basic info and PIDs
         for line in output.lines().skip(1) {
-            // ヘッダー行をスキップ
             let fields: Vec<&str> = line.split_whitespace().collect();
             if fields.len() < 9 {
                 continue;
@@ -172,7 +188,6 @@ impl PortManager {
             let protocol_field = if fields.len() > 7 { fields[7] } else { "" };
             let node = fields[8];
 
-            // TCPまたはUDPポートのみ処理
             if !type_field.contains("IPv4") && !type_field.contains("IPv6") {
                 continue;
             }
@@ -182,7 +197,6 @@ impl PortManager {
                 Err(_) => continue,
             };
 
-            // ポート番号を抽出
             let port = if let Some(colon_pos) = node.rfind(':') {
                 match node[colon_pos + 1..].parse::<u16>() {
                     Ok(port) => port,
@@ -198,7 +212,6 @@ impl PortManager {
                 "*".to_string()
             };
 
-            // プロトコルを複数の列から判定
             let protocol = if protocol_field.contains("TCP") || protocol_field.contains("tcp") {
                 "tcp"
             } else if protocol_field.contains("UDP") || protocol_field.contains("udp") {
@@ -212,16 +225,24 @@ impl PortManager {
             } else if type_field.contains("UDP") || type_field.contains("udp") {
                 "udp"
             } else {
-                // lsofのデフォルト動作から推測：リスニングポートは通常TCP
                 "tcp"
             }
             .to_string();
 
-            // プロセス情報を取得（完全なコマンドライン）
-            let full_command = match self.get_process_command(pid).await {
-                Ok(cmd) => cmd,
-                Err(_) => command.to_string(),
-            };
+            pids.push(pid);
+            processes.push((pid, port, protocol, address, command.to_string()));
+        }
+
+        // Batch get all process commands at once
+        let commands = self.get_process_commands_batch(&pids).await?;
+
+        // Build final process list
+        let mut final_processes = Vec::new();
+        for (pid, port, protocol, address, fallback_command) in processes {
+            let full_command = commands
+                .get(&pid)
+                .cloned()
+                .unwrap_or_else(|| fallback_command.clone());
 
             let name = self.extract_process_name(&full_command);
 
@@ -244,7 +265,7 @@ impl PortManager {
                 .await
                 .unwrap_or_else(|_| "Unknown".to_string());
 
-            processes.push(ProcessInfo {
+            final_processes.push(ProcessInfo {
                 pid,
                 name,
                 command: full_command,
@@ -256,14 +277,15 @@ impl PortManager {
             });
         }
 
-        Ok(processes)
+        Ok(final_processes)
     }
 
     async fn parse_ss_output(&self, output: &str, _protocol: &str) -> Result<Vec<ProcessInfo>> {
         let mut processes = Vec::new();
+        let mut pids = Vec::new();
+        let mut temp_processes = Vec::new();
 
         for line in output.lines().skip(1) {
-            // ヘッダー行をスキップ
             let parts: Vec<&str> = line.split_whitespace().collect();
             if parts.len() < 7 {
                 continue;
@@ -277,7 +299,6 @@ impl PortManager {
                 continue;
             };
 
-            // ポート番号を抽出
             let port = if let Some(colon_pos) = local_address.rfind(':') {
                 match local_address[colon_pos + 1..].parse::<u16>() {
                     Ok(port) => port,
@@ -287,7 +308,6 @@ impl PortManager {
                 continue;
             };
 
-            // プロセス情報からPIDを抽出 (users:(("process",pid=1234,fd=5)))
             let pid = if let Some(pid_start) = process_info.find("pid=") {
                 let pid_start = pid_start + 4;
                 if let Some(pid_end) = process_info[pid_start..].find(',') {
@@ -308,10 +328,18 @@ impl PortManager {
                 "*".to_string()
             };
 
-            let full_command = match self.get_process_command(pid).await {
-                Ok(cmd) => cmd,
-                Err(_) => "Unknown".to_string(),
-            };
+            pids.push(pid);
+            temp_processes.push((pid, port, protocol, address));
+        }
+
+        // Batch get all process commands
+        let commands = self.get_process_commands_batch(&pids).await?;
+
+        for (pid, port, protocol, address) in temp_processes {
+            let full_command = commands
+                .get(&pid)
+                .cloned()
+                .unwrap_or_else(|| "Unknown".to_string());
 
             let name = self.extract_process_name(&full_command);
 
@@ -355,6 +383,8 @@ impl PortManager {
         _protocol: &str,
     ) -> Result<Vec<ProcessInfo>> {
         let mut processes = Vec::new();
+        let mut pids = Vec::new();
+        let mut temp_processes = Vec::new();
 
         for line in output.lines() {
             let parts: Vec<&str> = line.split_whitespace().collect();
@@ -367,12 +397,10 @@ impl PortManager {
             let state = parts[5];
             let process_info = parts[6];
 
-            // リスニング状態のみ処理
             if !state.contains("LISTEN") {
                 continue;
             }
 
-            // ポート番号を抽出
             let port = if let Some(colon_pos) = local_address.rfind(':') {
                 match local_address[colon_pos + 1..].parse::<u16>() {
                     Ok(port) => port,
@@ -382,7 +410,6 @@ impl PortManager {
                 continue;
             };
 
-            // プロセス情報からPIDを抽出 (1234/process_name)
             let pid = if let Some(slash_pos) = process_info.find('/') {
                 match process_info[..slash_pos].parse::<u32>() {
                     Ok(pid) => pid,
@@ -398,10 +425,18 @@ impl PortManager {
                 "*".to_string()
             };
 
-            let full_command = match self.get_process_command(pid).await {
-                Ok(cmd) => cmd,
-                Err(_) => process_info.to_string(),
-            };
+            pids.push(pid);
+            temp_processes.push((pid, port, protocol, address, process_info.to_string()));
+        }
+
+        // Batch get all process commands
+        let commands = self.get_process_commands_batch(&pids).await?;
+
+        for (pid, port, protocol, address, fallback_info) in temp_processes {
+            let full_command = commands
+                .get(&pid)
+                .cloned()
+                .unwrap_or_else(|| fallback_info.clone());
 
             let name = self.extract_process_name(&full_command);
 
@@ -446,7 +481,6 @@ impl PortManager {
 
         let parts: Vec<&str> = command_line.split_whitespace().collect();
         if let Some(first_part) = parts.first() {
-            // パスから実行ファイル名だけを抽出
             let name = first_part.split('/').next_back().unwrap_or(first_part);
             name.to_string()
         } else {
@@ -577,6 +611,71 @@ impl PortManager {
 
         // Fallback to "Unknown" if we can't get the working directory
         Ok("Unknown".to_string())
+    }
+
+    // バッチでプロセス情報を取得（大幅な高速化）
+    async fn get_process_commands_batch(&self, pids: &[u32]) -> Result<HashMap<u32, String>> {
+        if pids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        // 一度にすべてのプロセス情報を取得
+        let pid_list = pids
+            .iter()
+            .map(|p| p.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+
+        let output = TokioCommand::new("ps")
+            .arg("-p")
+            .arg(&pid_list)
+            .arg("-o")
+            .arg("pid=,command=")
+            .output()
+            .await?;
+
+        let mut commands = HashMap::new();
+
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for line in stdout.lines() {
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
+                }
+
+                // Split by first whitespace to separate PID and command
+                if let Some(space_pos) = line.find(char::is_whitespace) {
+                    if let Ok(pid) = line[..space_pos].trim().parse::<u32>() {
+                        let command = line[space_pos..].trim().to_string();
+                        commands.insert(pid, command);
+                    }
+                }
+            }
+        }
+
+        // Fallback for missing PIDs (parallel execution)
+        let missing_pids: Vec<u32> = pids
+            .iter()
+            .filter(|&&pid| !commands.contains_key(&pid))
+            .copied()
+            .collect();
+
+        if !missing_pids.is_empty() {
+            let futures = missing_pids.iter().map(|&pid| async move {
+                self.get_process_command(pid)
+                    .await
+                    .ok()
+                    .map(|cmd| (pid, cmd))
+            });
+
+            let results = join_all(futures).await;
+            for result in results.into_iter().flatten() {
+                commands.insert(result.0, result.1);
+            }
+        }
+
+        Ok(commands)
     }
 }
 
