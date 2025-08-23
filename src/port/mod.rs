@@ -224,8 +224,10 @@ impl PortManager {
             _ => "-i",
         };
 
+        let combined_flag = format!("{}:{}", protocol_flag, port);
+
         let output = TokioCommand::new("lsof")
-            .args(["-n", "-P", protocol_flag, &format!(":{}", port)])
+            .args(["-n", "-P", &combined_flag])
             .output()
             .await?;
 
