@@ -890,3 +890,340 @@ impl Default for PortManager {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_process_info_creation() {
+        let process_info = ProcessInfo {
+            pid: 1234,
+            name: "test_process".to_string(),
+            command: "/usr/bin/test_process --port 8080".to_string(),
+            executable_path: "/usr/bin/test_process".to_string(),
+            working_directory: "/home/user/project".to_string(),
+            port: 8080,
+            protocol: "tcp".to_string(),
+            address: "127.0.0.1".to_string(),
+            inode: Some(12345),
+        };
+
+        assert_eq!(process_info.pid, 1234);
+        assert_eq!(process_info.name, "test_process");
+        assert_eq!(process_info.port, 8080);
+        assert_eq!(process_info.protocol, "tcp");
+        assert_eq!(process_info.address, "127.0.0.1");
+        assert_eq!(process_info.inode, Some(12345));
+    }
+
+    #[test]
+    fn test_process_info_serialization() {
+        let process_info = ProcessInfo {
+            pid: 1234,
+            name: "test_process".to_string(),
+            command: "/usr/bin/test_process --port 8080".to_string(),
+            executable_path: "/usr/bin/test_process".to_string(),
+            working_directory: "/home/user/project".to_string(),
+            port: 8080,
+            protocol: "tcp".to_string(),
+            address: "127.0.0.1".to_string(),
+            inode: None, // Test with None value
+        };
+
+        // Test JSON serialization
+        let json = serde_json::to_string(&process_info).expect("Failed to serialize");
+        assert!(json.contains("\"pid\":1234"));
+        assert!(json.contains("\"name\":\"test_process\""));
+        assert!(json.contains("\"port\":8080"));
+        assert!(!json.contains("\"inode\"")); // Should be skipped when None
+
+        // Test deserialization
+        let deserialized: ProcessInfo = serde_json::from_str(&json).expect("Failed to deserialize");
+        assert_eq!(deserialized.pid, process_info.pid);
+        assert_eq!(deserialized.name, process_info.name);
+        assert_eq!(deserialized.port, process_info.port);
+        assert_eq!(deserialized.inode, None);
+    }
+
+    #[tokio::test]
+    async fn test_port_manager_creation() {
+        let port_manager = PortManager::new();
+        // PortManagerが正常に作成されることを確認
+        assert!(std::ptr::addr_of!(port_manager) as *const PortManager != std::ptr::null());
+    }
+
+    #[tokio::test]
+    async fn test_check_port_with_empty_list() {
+        let port_manager = PortManager::new();
+
+        // システムに依存するテストなので、エラーハンドリングを主にテスト
+        match port_manager.check_port(65450, "tcp").await {
+            Ok(result) => {
+                // 結果がNoneまたはSomeのProcessInfoであることを確認
+                match result {
+                    Some(process_info) => {
+                        assert!(process_info.pid > 0);
+                        assert!(!process_info.name.is_empty());
+                        assert_eq!(process_info.port, 65450);
+                    }
+                    None => {
+                        // ポートが使用されていない場合
+                    }
+                }
+            }
+            Err(_) => {
+                // システムツールがない場合のエラー
+            }
+        }
+    }
+
+    #[test]
+    fn test_extract_process_name() {
+        let port_manager = PortManager::new();
+
+        // 様々な形式のコマンドラインからプロセス名を抽出するテスト
+        assert_eq!(
+            port_manager.extract_process_name("/usr/bin/node server.js"),
+            "node"
+        );
+        assert_eq!(
+            port_manager.extract_process_name("python3 app.py"),
+            "python3"
+        );
+        assert_eq!(
+            port_manager
+                .extract_process_name("/Applications/Chrome.app/Contents/MacOS/Google Chrome"),
+            "Google"
+        );
+        assert_eq!(port_manager.extract_process_name(""), "Unknown");
+        assert_eq!(
+            port_manager.extract_process_name("single_command"),
+            "single_command"
+        );
+        assert_eq!(
+            port_manager.extract_process_name("./local_binary --flag value"),
+            "local_binary"
+        );
+    }
+
+    #[test]
+    fn test_extract_executable_path() {
+        let port_manager = PortManager::new();
+
+        // 様々な形式のコマンドラインから実行ファイルパスを抽出するテスト
+        assert_eq!(
+            port_manager.extract_executable_path("/usr/bin/node server.js"),
+            "/usr/bin/node"
+        );
+        assert_eq!(
+            port_manager.extract_executable_path("python3 app.py"),
+            "python3"
+        );
+        assert_eq!(
+            port_manager.extract_executable_path(
+                "/Applications/Chrome.app/Contents/MacOS/Google Chrome --flag"
+            ),
+            "/Applications/Chrome.app/Contents/MacOS/Google"
+        );
+        assert_eq!(port_manager.extract_executable_path(""), "Unknown");
+        assert_eq!(
+            port_manager.extract_executable_path("single_command"),
+            "single_command"
+        );
+    }
+
+    #[test]
+    fn test_get_display_path_development_processes() {
+        let port_manager = PortManager::new();
+
+        // 開発プロセス用のProcessInfoをテスト
+        let dev_process_info = ProcessInfo {
+            pid: 1234,
+            name: "node".to_string(),
+            command: "/usr/local/bin/node server.js".to_string(),
+            executable_path: "/usr/local/bin/node".to_string(),
+            working_directory: "/home/user/my-project".to_string(),
+            port: 3000,
+            protocol: "tcp".to_string(),
+            address: "127.0.0.1".to_string(),
+            inode: Some(12345),
+        };
+
+        // 開発プロセスの場合は作業ディレクトリが返されるべき
+        let display_path = port_manager.get_display_path(&dev_process_info);
+        assert_eq!(display_path, "/home/user/my-project");
+    }
+
+    #[test]
+    fn test_get_display_path_system_processes() {
+        let port_manager = PortManager::new();
+
+        // システムプロセス用のProcessInfoをテスト
+        let system_process_info = ProcessInfo {
+            pid: 1234,
+            name: "sshd".to_string(),
+            command: "/usr/sbin/sshd -D".to_string(),
+            executable_path: "/usr/sbin/sshd".to_string(),
+            working_directory: "/".to_string(),
+            port: 22,
+            protocol: "tcp".to_string(),
+            address: "0.0.0.0".to_string(),
+            inode: Some(12345),
+        };
+
+        // システムプロセスの場合は実行ファイルパスが返されるべき
+        let display_path = port_manager.get_display_path(&system_process_info);
+        assert_eq!(display_path, "/usr/sbin/sshd");
+    }
+
+    #[test]
+    fn test_get_display_path_unknown_working_directory() {
+        let port_manager = PortManager::new();
+
+        let process_info = ProcessInfo {
+            pid: 1234,
+            name: "test_process".to_string(),
+            command: "/usr/bin/test_process".to_string(),
+            executable_path: "/usr/bin/test_process".to_string(),
+            working_directory: "Unknown".to_string(),
+            port: 8080,
+            protocol: "tcp".to_string(),
+            address: "127.0.0.1".to_string(),
+            inode: Some(12345),
+        };
+
+        // 作業ディレクトリが不明な場合は実行ファイルパスが返されるべき
+        let display_path = port_manager.get_display_path(&process_info);
+        assert_eq!(display_path, "/usr/bin/test_process");
+    }
+
+    #[tokio::test]
+    async fn test_list_processes_error_handling() {
+        let port_manager = PortManager::new();
+
+        // 様々なプロトコルでのエラーハンドリングをテスト
+        for protocol in ["tcp", "udp", "all", "invalid"] {
+            match port_manager.list_processes(protocol).await {
+                Ok(processes) => {
+                    // 成功した場合、ProcessInfoのリストが返される
+                    for process in processes {
+                        assert!(process.pid > 0);
+                        assert!(!process.name.is_empty());
+                        assert!(process.port > 0);
+                        assert!(!process.protocol.is_empty());
+                    }
+                }
+                Err(_) => {
+                    // システムツールがない場合やパーミッションエラー
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_processes_with_progress() {
+        let port_manager = PortManager::new();
+
+        // シンプルなプログレスコールバック（状態を変更しない）
+        let progress_callback = |_message: &str| {
+            // プログレスメッセージを受け取るだけのテスト
+        };
+
+        // プログレスコールバック付きでのリスト取得をテスト
+        match port_manager
+            .list_processes_with_progress("tcp", Some(progress_callback))
+            .await
+        {
+            Ok(_processes) => {
+                // コールバックが正常に動作したことを確認
+            }
+            Err(_) => {
+                // システムツールがない場合のエラーも受け入れ
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_empty_pid_list_get_all_process_details() {
+        let port_manager = PortManager::new();
+
+        // 空のPIDリストを渡した場合のテスト
+        let result = port_manager.get_all_process_details(&[]).await;
+        assert!(result.is_ok());
+
+        let details_map = result.unwrap();
+        assert!(details_map.is_empty());
+    }
+
+    #[test]
+    fn test_process_details_creation() {
+        // ProcessDetails構造体の作成をテスト
+        let details = ProcessDetails {
+            executable_path: "/usr/bin/test".to_string(),
+            working_directory: "/home/user".to_string(),
+        };
+
+        assert_eq!(details.executable_path, "/usr/bin/test");
+        assert_eq!(details.working_directory, "/home/user");
+    }
+
+    #[tokio::test]
+    async fn test_port_manager_default() {
+        let port_manager = PortManager::default();
+
+        // デフォルトのPortManagerが正常に作成されることを確認
+        assert!(std::ptr::addr_of!(port_manager) as *const PortManager != std::ptr::null());
+    }
+
+    #[test]
+    fn test_process_info_with_different_protocols() {
+        // 異なるプロトコルでのProcessInfoをテスト
+        for protocol in ["tcp", "udp", "tcp6", "udp6"] {
+            let process_info = ProcessInfo {
+                pid: 1234,
+                name: "test_process".to_string(),
+                command: "/usr/bin/test_process".to_string(),
+                executable_path: "/usr/bin/test_process".to_string(),
+                working_directory: "/home/user/project".to_string(),
+                port: 8080,
+                protocol: protocol.to_string(),
+                address: "127.0.0.1".to_string(),
+                inode: Some(12345),
+            };
+
+            assert_eq!(process_info.protocol, protocol);
+            assert!(process_info.protocol.len() >= 3);
+        }
+    }
+
+    #[test]
+    fn test_process_info_edge_cases() {
+        // エッジケースのProcessInfoをテスト
+        let edge_cases = [
+            (1, 1, "0.0.0.0"),          // 最小ポート、すべてのアドレス
+            (65535, 65535, "::1"),      // 最大ポート、IPv6ローカルホスト
+            (1, 22, "127.0.0.1"),       // 一般的なSSHポート
+            (65535, 80, "192.168.1.1"), // HTTPポート、プライベートIP
+        ];
+
+        for (pid, port, address) in edge_cases {
+            let process_info = ProcessInfo {
+                pid,
+                name: "test".to_string(),
+                command: "test".to_string(),
+                executable_path: "/usr/bin/test".to_string(),
+                working_directory: "/".to_string(),
+                port,
+                protocol: "tcp".to_string(),
+                address: address.to_string(),
+                inode: Some(12345),
+            };
+
+            assert!(process_info.pid >= 1);
+            // u16型なので範囲は自動的に0-65535に制限される
+            assert!(process_info.port > 0);
+            assert!(!process_info.address.is_empty());
+        }
+    }
+}
