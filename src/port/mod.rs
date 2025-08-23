@@ -2,6 +2,10 @@ use crate::Result;
 use serde::{Deserialize, Serialize};
 use tokio::process::Command as TokioCommand;
 
+pub mod adaptive;
+pub mod incremental;
+pub mod procfs;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProcessInfo {
     pub pid: u32,
@@ -12,6 +16,8 @@ pub struct ProcessInfo {
     pub port: u16,
     pub protocol: String,
     pub address: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inode: Option<u64>, // For procfs-based implementation
 }
 
 pub struct PortManager;
@@ -253,6 +259,7 @@ impl PortManager {
                 port,
                 protocol,
                 address,
+                inode: None, // Legacy implementation doesn't track inodes
             });
         }
 
@@ -343,6 +350,7 @@ impl PortManager {
                 port,
                 protocol,
                 address,
+                inode: None, // Legacy implementation doesn't track inodes
             });
         }
 
@@ -433,6 +441,7 @@ impl PortManager {
                 port,
                 protocol,
                 address,
+                inode: None, // Legacy implementation doesn't track inodes
             });
         }
 

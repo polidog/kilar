@@ -52,14 +52,24 @@ async fn run() -> Result<()> {
             sort,
             protocol,
             view_only,
+            performance_mode,
+            watch,
         } => {
             validate_protocol(&protocol)?;
             validate_sort_option(&sort)?;
 
-            // デフォルトはkill機能付き、--view-onlyで表示のみ
+            // デフォルトはkill機能付き、--view-onlyで無効化
             let kill_mode = !view_only;
             ListCommand::execute(
-                ports, filter, &sort, &protocol, kill_mode, cli.quiet, cli.json,
+                ports,
+                filter,
+                &sort,
+                &protocol,
+                kill_mode,
+                cli.quiet,
+                cli.json,
+                Some(&performance_mode),
+                watch,
             )
             .await?;
         }

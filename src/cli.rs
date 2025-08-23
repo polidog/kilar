@@ -71,6 +71,16 @@ pub enum Commands {
 
         #[arg(long, help = "View only (no kill feature)")]
         view_only: bool,
+
+        #[arg(
+            long,
+            help = "Performance mode (fast/balanced/complete)",
+            default_value = "balanced"
+        )]
+        performance_mode: String,
+
+        #[arg(long, help = "Watch mode - continuously monitor port changes")]
+        watch: bool,
     },
 }
 
