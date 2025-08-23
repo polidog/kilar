@@ -285,7 +285,7 @@ mod tests {
             }
             Err(e) => {
                 // エラーの場合、適切なエラーメッセージが生成されることを確認
-                assert!(e.to_string().len() > 0);
+                assert!(!e.to_string().is_empty());
             }
         }
     }

@@ -91,8 +91,8 @@ mod tests {
     #[test]
     fn test_cli_structure() {
         // CLI構造体の基本構造をテスト
-        let cli = Cli::try_parse_from(&["kilar", "check", "3000"])
-            .expect("Failed to parse check command");
+        let cli =
+            Cli::try_parse_from(["kilar", "check", "3000"]).expect("Failed to parse check command");
 
         assert!(!cli.quiet);
         assert!(!cli.json);
@@ -138,7 +138,8 @@ mod tests {
         ];
 
         for (args, expected_port, expected_protocol, expected_interactive) in test_cases {
-            let cli = Cli::try_parse_from(&args).expect(&format!("Failed to parse: {:?}", args));
+            let cli = Cli::try_parse_from(&args)
+                .unwrap_or_else(|_| panic!("Failed to parse: {:?}", args));
 
             match cli.command {
                 Commands::Check {
@@ -184,7 +185,8 @@ mod tests {
         ];
 
         for (args, expected_port, expected_protocol, expected_force) in test_cases {
-            let cli = Cli::try_parse_from(&args).expect(&format!("Failed to parse: {:?}", args));
+            let cli = Cli::try_parse_from(&args)
+                .unwrap_or_else(|_| panic!("Failed to parse: {:?}", args));
 
             match cli.command {
                 Commands::Kill {
@@ -208,7 +210,7 @@ mod tests {
     #[test]
     fn test_list_command_parsing() {
         // List コマンドのパースをテスト
-        let cli = Cli::try_parse_from(&["kilar", "list"]).expect("Failed to parse list command");
+        let cli = Cli::try_parse_from(["kilar", "list"]).expect("Failed to parse list command");
 
         match cli.command {
             Commands::List {
@@ -232,7 +234,7 @@ mod tests {
 
     #[test]
     fn test_list_command_with_options() {
-        let cli = Cli::try_parse_from(&[
+        let cli = Cli::try_parse_from([
             "kilar",
             "list",
             "--ports",
@@ -297,7 +299,7 @@ mod tests {
         ];
 
         for (args, expected_quiet, expected_json, expected_verbose) in test_cases {
-            let cli = Cli::try_parse_from(&args).expect(&format!("Failed to parse: {:?}", args));
+            let cli = Cli::try_parse_from(&args).unwrap_or_else(|_| panic!("Failed to parse: {:?}", args));
 
             assert_eq!(
                 cli.quiet, expected_quiet,
@@ -361,7 +363,7 @@ mod tests {
         for protocol in protocols {
             let args = vec!["kilar", "check", "3000", "--protocol", protocol];
             let cli = Cli::try_parse_from(&args)
-                .expect(&format!("Failed to parse protocol: {}", protocol));
+                .unwrap_or_else(|_| panic!("Failed to parse protocol: {}", protocol));
 
             match cli.command {
                 Commands::Check {
@@ -382,7 +384,8 @@ mod tests {
 
         for sort in sorts {
             let args = vec!["kilar", "list", "--sort", sort];
-            let cli = Cli::try_parse_from(&args).expect(&format!("Failed to parse sort: {}", sort));
+            let cli = Cli::try_parse_from(&args)
+                .unwrap_or_else(|_| panic!("Failed to parse sort: {}", sort));
 
             match cli.command {
                 Commands::List {
@@ -438,7 +441,7 @@ mod tests {
     #[test]
     fn test_command_aliases() {
         // 短縮オプションのテスト
-        let cli = Cli::try_parse_from(&["kilar", "check", "3000", "-p", "udp", "-i"])
+        let cli = Cli::try_parse_from(["kilar", "check", "3000", "-p", "udp", "-i"])
             .expect("Failed to parse with short options");
 
         match cli.command {
@@ -458,7 +461,7 @@ mod tests {
     #[test]
     fn test_default_values() {
         // デフォルト値のテスト
-        let cli = Cli::try_parse_from(&["kilar", "check", "3000"]).expect("Failed to parse");
+        let cli = Cli::try_parse_from(["kilar", "check", "3000"]).expect("Failed to parse");
 
         match cli.command {
             Commands::Check {
@@ -472,7 +475,7 @@ mod tests {
             _ => panic!("Expected Check command"),
         }
 
-        let cli = Cli::try_parse_from(&["kilar", "list"]).expect("Failed to parse");
+        let cli = Cli::try_parse_from(["kilar", "list"]).expect("Failed to parse");
 
         match cli.command {
             Commands::List { sort, protocol, .. } => {

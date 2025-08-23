@@ -950,7 +950,8 @@ mod tests {
     async fn test_port_manager_creation() {
         let port_manager = PortManager::new();
         // PortManagerが正常に作成されることを確認
-        assert!(std::ptr::addr_of!(port_manager) as *const PortManager != std::ptr::null());
+        // PortManagerが正常に作成されることを確認（存在チェック）
+        let _ = &port_manager;
     }
 
     #[tokio::test]
@@ -1170,10 +1171,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_port_manager_default() {
-        let port_manager = PortManager::default();
+        let port_manager = PortManager;
 
         // デフォルトのPortManagerが正常に作成されることを確認
-        assert!(std::ptr::addr_of!(port_manager) as *const PortManager != std::ptr::null());
+        // デフォルトのPortManagerが正常に作成されることを確認（存在チェック）
+        let _ = &port_manager;
     }
 
     #[test]

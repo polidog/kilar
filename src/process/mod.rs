@@ -119,14 +119,16 @@ mod tests {
     async fn test_process_manager_creation() {
         let process_manager = ProcessManager::new();
         // ProcessManagerが正常に作成されることを確認
-        assert!(std::ptr::addr_of!(process_manager) as *const ProcessManager != std::ptr::null());
+        // ProcessManagerが正常に作成されることを確認（存在チェック）
+        let _ = &process_manager;
     }
 
     #[tokio::test]
     async fn test_process_manager_default() {
-        let process_manager = ProcessManager::default();
+        let process_manager = ProcessManager;
         // デフォルトのProcessManagerが正常に作成されることを確認
-        assert!(std::ptr::addr_of!(process_manager) as *const ProcessManager != std::ptr::null());
+        // デフォルトのProcessManagerが正常に作成されることを確認（存在チェック）
+        let _ = &process_manager;
     }
 
     #[tokio::test]
@@ -230,7 +232,7 @@ mod tests {
                 );
 
                 // 基本的な妥当性チェック
-                assert!(comm.len() > 0);
+                assert!(!comm.is_empty());
                 assert!(command.len() >= comm.len());
             }
             Err(_) => {
@@ -319,7 +321,7 @@ mod tests {
         // 複数のProcessManagerインスタンスが独立して動作することを確認
         let pm1 = ProcessManager::new();
         let pm2 = ProcessManager::new();
-        let pm3 = ProcessManager::default();
+        let pm3 = ProcessManager;
 
         let current_pid = std::process::id();
 
@@ -347,7 +349,7 @@ mod tests {
     fn test_process_manager_struct_properties() {
         // ProcessManager構造体のプロパティをテスト
         let pm1 = ProcessManager::new();
-        let pm2 = ProcessManager::default();
+        let pm2 = ProcessManager;
 
         // 構造体が正常に作成されることを確認
         assert!(std::mem::size_of::<ProcessManager>() == 0); // Zero-sized struct

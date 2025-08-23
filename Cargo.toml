@@ -1,6 +1,6 @@
 [package]
 name = "kilar"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 authors = ["polidog <polidog@example.com>"]
 description = "A powerful CLI tool for managing port processes - quickly find and terminate processes using specific ports"
