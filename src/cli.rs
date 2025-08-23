@@ -299,7 +299,8 @@ mod tests {
         ];
 
         for (args, expected_quiet, expected_json, expected_verbose) in test_cases {
-            let cli = Cli::try_parse_from(&args).unwrap_or_else(|_| panic!("Failed to parse: {:?}", args));
+            let cli = Cli::try_parse_from(&args)
+                .unwrap_or_else(|_| panic!("Failed to parse: {:?}", args));
 
             assert_eq!(
                 cli.quiet, expected_quiet,
