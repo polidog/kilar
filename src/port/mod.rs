@@ -558,7 +558,7 @@ impl PortManager {
             }
 
             let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() < 7 {
+            if parts.len() < 6 {
                 continue;
             }
 
@@ -584,7 +584,7 @@ impl PortManager {
                                 .unwrap_or_else(|_| "Unknown".to_string());
                             {
                                 // Parse the local address to get the port
-                                if let Some(local_addr) = parts.get(4) {
+                                if let Some(local_addr) = parts.get(3) {
                                     if local_addr.ends_with(&format!(":{}", port)) {
                                         let address = if let Some(colon_pos) = local_addr.rfind(':')
                                         {
@@ -759,17 +759,13 @@ impl PortManager {
         for line in output.lines().skip(1) {
             // ヘッダー行をスキップ
             let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() < 7 {
+            if parts.len() < 6 {
                 continue;
             }
 
             let protocol = parts[0].to_lowercase();
-            let local_address = parts[4];
-            let process_info = if parts.len() > 6 {
-                parts[6]
-            } else {
-                continue;
-            };
+            let local_address = parts[3];
+            let process_info = parts[5..].join(" ");
 
             // ポート番号を抽出
             let port = if let Some(colon_pos) = local_address.rfind(':') {
