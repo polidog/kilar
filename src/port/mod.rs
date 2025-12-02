@@ -1504,4 +1504,121 @@ mod tests {
             assert!(!process_info.address.is_empty());
         }
     }
+
+    #[tokio::test]
+    async fn test_parse_ss_output_basic() {
+        let port_manager = PortManager::new();
+
+        // 基本的なss出力のテスト
+        let ss_output = r#"State  Recv-Q Send-Q Local Address:Port  Peer Address:Port Process
+LISTEN 0      128          *:3000             *:*     users:(("node",pid=1234,fd=22))"#;
+
+        let result = port_manager.parse_ss_output(ss_output, "tcp").await;
+        assert!(result.is_ok());
+
+        let processes = result.unwrap();
+        assert_eq!(processes.len(), 1);
+        assert_eq!(processes[0].port, 3000);
+        assert_eq!(processes[0].pid, 1234);
+        assert_eq!(processes[0].address, "*");
+        assert_eq!(processes[0].protocol, "listen");
+    }
+
+    #[tokio::test]
+    async fn test_parse_ss_output_with_spaces_in_process_name() {
+        let port_manager = PortManager::new();
+
+        // プロセス名にスペースが含まれる場合のテスト
+        let ss_output = r#"State  Recv-Q Send-Q Local Address:Port  Peer Address:Port Process
+LISTEN 0      128          *:8080             *:*     users:(("next-server (v16.0.0)",pid=5678,fd=15))"#;
+
+        let result = port_manager.parse_ss_output(ss_output, "tcp").await;
+        assert!(result.is_ok());
+
+        let processes = result.unwrap();
+        assert_eq!(processes.len(), 1);
+        assert_eq!(processes[0].port, 8080);
+        assert_eq!(processes[0].pid, 5678);
+    }
+
+    #[tokio::test]
+    async fn test_parse_ss_output_multiple_processes() {
+        let port_manager = PortManager::new();
+
+        // 複数プロセスのテスト
+        let ss_output = r#"State  Recv-Q Send-Q Local Address:Port  Peer Address:Port Process
+LISTEN 0      128          *:3000             *:*     users:(("node",pid=1234,fd=22))
+LISTEN 0      128    127.0.0.1:5432           *:*     users:(("postgres",pid=5678,fd=10))
+LISTEN 0      128       [::1]:6379             *:*     users:(("redis-server",pid=9012,fd=5))"#;
+
+        let result = port_manager.parse_ss_output(ss_output, "tcp").await;
+        assert!(result.is_ok());
+
+        let processes = result.unwrap();
+        assert_eq!(processes.len(), 3);
+
+        // ポート3000
+        assert_eq!(processes[0].port, 3000);
+        assert_eq!(processes[0].pid, 1234);
+        assert_eq!(processes[0].address, "*");
+
+        // ポート5432
+        assert_eq!(processes[1].port, 5432);
+        assert_eq!(processes[1].pid, 5678);
+        assert_eq!(processes[1].address, "127.0.0.1");
+
+        // ポート6379 (IPv6)
+        assert_eq!(processes[2].port, 6379);
+        assert_eq!(processes[2].pid, 9012);
+        assert_eq!(processes[2].address, "[::1]");
+    }
+
+    #[tokio::test]
+    async fn test_parse_ss_output_empty() {
+        let port_manager = PortManager::new();
+
+        // 空の出力のテスト
+        let ss_output = "State  Recv-Q Send-Q Local Address:Port  Peer Address:Port Process";
+
+        let result = port_manager.parse_ss_output(ss_output, "tcp").await;
+        assert!(result.is_ok());
+
+        let processes = result.unwrap();
+        assert_eq!(processes.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_parse_ss_output_invalid_lines() {
+        let port_manager = PortManager::new();
+
+        // 無効な行が含まれる場合のテスト（6パーツ未満）
+        let ss_output = r#"State  Recv-Q Send-Q Local Address:Port  Peer Address:Port Process
+LISTEN 0      128          *:3000             *:*     users:(("node",pid=1234,fd=22))
+invalid line with fewer parts
+LISTEN 0      128"#;
+
+        let result = port_manager.parse_ss_output(ss_output, "tcp").await;
+        assert!(result.is_ok());
+
+        let processes = result.unwrap();
+        // 有効な行のみがパースされる
+        assert_eq!(processes.len(), 1);
+        assert_eq!(processes[0].port, 3000);
+    }
+
+    #[tokio::test]
+    async fn test_parse_ss_output_no_pid() {
+        let port_manager = PortManager::new();
+
+        // PID情報がない場合のテスト
+        let ss_output = r#"State  Recv-Q Send-Q Local Address:Port  Peer Address:Port Process
+LISTEN 0      128          *:3000             *:*     users:(("node",fd=22))"#;
+
+        let result = port_manager.parse_ss_output(ss_output, "tcp").await;
+        assert!(result.is_ok());
+
+        let processes = result.unwrap();
+        // PIDがない行はスキップされる
+        assert_eq!(processes.len(), 0);
+    }
 }
