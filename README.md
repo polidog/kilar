@@ -264,8 +264,34 @@ All commands support JSON output for scripting and automation:
 
 ## Requirements 📋
 
-- **macOS/Linux**: `lsof` command (usually pre-installed)
-- **Permissions**: Some operations may require sudo privileges
+### System Tools
+
+`kilar` requires one of the following system tools to detect port usage:
+
+- **`lsof`** (recommended) - Usually pre-installed on macOS, optional on Linux
+- **`ss`** (Linux fallback) - Part of `iproute2` package, typically pre-installed on most Linux distributions
+- **`netstat`** (alternative fallback) - Available on most systems
+
+**Installation instructions for Linux:**
+
+```bash
+# Arch Linux / Manjaro
+sudo pacman -S lsof  # Optional, ss is already available via iproute2
+
+# Debian / Ubuntu
+sudo apt-get install lsof  # Optional, ss is already available
+
+# Fedora / RHEL / CentOS
+sudo dnf install lsof  # Optional, ss is already available
+```
+
+> **Note**: On Linux systems without `lsof`, `kilar` automatically uses `ss` as a fallback.
+> Only processes owned by the current user will be shown unless running with elevated privileges.
+
+### Permissions
+
+- Some port detection operations may require elevated privileges to see all processes
+- Process termination requires appropriate permissions for the target process
 
 ## Building from Source 🔨
 
