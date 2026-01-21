@@ -67,15 +67,47 @@ impl PortManager {
     }
 
     async fn list_processes_unix(&self, protocol: &str) -> Result<Vec<ProcessInfo>> {
-        // Try lsof first, fallback to ss, then netstat
-        if let Ok(result) = self.try_lsof(protocol).await {
-            return Ok(result);
+        use std::collections::HashSet;
+
+        // Collect results from lsof
+        let lsof_result = self.try_lsof(protocol).await;
+
+        // Collect results from ss
+        let ss_result = self.try_ss(protocol).await;
+
+        // Merge results from both sources, preferring lsof data when available
+        // but including ports only found by ss
+        let mut merged_results: Vec<ProcessInfo> = Vec::new();
+        let mut seen_ports: HashSet<(u16, String)> = HashSet::new();
+
+        // Add lsof results first (they tend to have more complete process info)
+        if let Ok(lsof_processes) = lsof_result {
+            for process in lsof_processes {
+                let key = (process.port, process.protocol.clone());
+                if !seen_ports.contains(&key) {
+                    seen_ports.insert(key);
+                    merged_results.push(process);
+                }
+            }
         }
 
-        if let Ok(result) = self.try_ss(protocol).await {
-            return Ok(result);
+        // Add ss results for ports not found by lsof
+        if let Ok(ss_processes) = ss_result {
+            for process in ss_processes {
+                let key = (process.port, process.protocol.clone());
+                if !seen_ports.contains(&key) {
+                    seen_ports.insert(key);
+                    merged_results.push(process);
+                }
+            }
         }
 
+        // If we found any processes, return them
+        if !merged_results.is_empty() {
+            return Ok(merged_results);
+        }
+
+        // Final fallback: netstat
         self.try_netstat_unix(protocol).await
     }
 
@@ -86,13 +118,14 @@ impl PortManager {
         protocol: &str,
     ) -> Result<Option<ProcessInfo>> {
         // Try lsof for specific port first - much faster than scanning all ports
-        if let Ok(result) = self.try_lsof_specific_port(port, protocol).await {
-            return Ok(result);
+        // Only return if we found a process, otherwise fall through to next method
+        if let Ok(Some(result)) = self.try_lsof_specific_port(port, protocol).await {
+            return Ok(Some(result));
         }
 
         // Fallback to ss for specific port
-        if let Ok(result) = self.try_ss_specific_port(port, protocol).await {
-            return Ok(result);
+        if let Ok(Some(result)) = self.try_ss_specific_port(port, protocol).await {
+            return Ok(Some(result));
         }
 
         // Final fallback: netstat for specific port
@@ -107,23 +140,55 @@ impl PortManager {
     where
         F: Fn(&str) + Send + Sync,
     {
+        use std::collections::HashSet;
+
         if let Some(ref cb) = callback {
             cb("Executing port scan with lsof...");
         }
 
-        // Try lsof first, fallback to ss, then netstat
-        if let Ok(result) = self.try_lsof_with_callback(protocol, &callback).await {
-            return Ok(result);
-        }
+        // Collect results from lsof
+        let lsof_result = self.try_lsof_with_callback(protocol, &callback).await;
 
         if let Some(ref cb) = callback {
             cb("Trying alternative method (ss)...");
         }
 
-        if let Ok(result) = self.try_ss(protocol).await {
-            return Ok(result);
+        // Collect results from ss
+        let ss_result = self.try_ss(protocol).await;
+
+        // Merge results from both sources, preferring lsof data when available
+        // but including ports only found by ss
+        let mut merged_results: Vec<ProcessInfo> = Vec::new();
+        let mut seen_ports: HashSet<(u16, String)> = HashSet::new();
+
+        // Add lsof results first (they tend to have more complete process info)
+        if let Ok(lsof_processes) = lsof_result {
+            for process in lsof_processes {
+                let key = (process.port, process.protocol.clone());
+                if !seen_ports.contains(&key) {
+                    seen_ports.insert(key);
+                    merged_results.push(process);
+                }
+            }
         }
 
+        // Add ss results for ports not found by lsof
+        if let Ok(ss_processes) = ss_result {
+            for process in ss_processes {
+                let key = (process.port, process.protocol.clone());
+                if !seen_ports.contains(&key) {
+                    seen_ports.insert(key);
+                    merged_results.push(process);
+                }
+            }
+        }
+
+        // If we found any processes, return them
+        if !merged_results.is_empty() {
+            return Ok(merged_results);
+        }
+
+        // Final fallback: netstat
         if let Some(ref cb) = callback {
             cb("Trying fallback method (netstat)...");
         }
@@ -753,7 +818,7 @@ impl PortManager {
         Ok(processes)
     }
 
-    async fn parse_ss_output(&self, output: &str, _protocol: &str) -> Result<Vec<ProcessInfo>> {
+    async fn parse_ss_output(&self, output: &str, protocol: &str) -> Result<Vec<ProcessInfo>> {
         let mut processes = Vec::new();
 
         for line in output.lines().skip(1) {
@@ -763,7 +828,8 @@ impl PortManager {
                 continue;
             }
 
-            let protocol = parts[0].to_lowercase();
+            // parts[0] is the state (LISTEN, ESTAB, etc.), not protocol
+            // Use the protocol parameter from the caller instead
             let local_address = parts[3];
             let process_info = parts[5..].join(" ");
 
@@ -831,7 +897,7 @@ impl PortManager {
                 executable_path,
                 working_directory,
                 port,
-                protocol,
+                protocol: protocol.to_string(),
                 address,
                 inode: None, // Legacy implementation doesn't track inodes
             });
@@ -1521,7 +1587,7 @@ LISTEN 0      128          *:3000             *:*     users:(("node",pid=1234,fd
         assert_eq!(processes[0].port, 3000);
         assert_eq!(processes[0].pid, 1234);
         assert_eq!(processes[0].address, "*");
-        assert_eq!(processes[0].protocol, "listen");
+        assert_eq!(processes[0].protocol, "tcp");
     }
 
     #[tokio::test]
