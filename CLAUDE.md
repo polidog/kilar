@@ -128,8 +128,9 @@ make build-macos-arm
 ## 配布とリリース
 
 ### Homebrew配布
-- Formula: `Formula/kilar.rb`
-- スクリプト: `scripts/setup-homebrew-tap.sh`, `scripts/update-formula.sh`
+- Tap: `polidog/homebrew-kilar`
+- インストール: `brew tap polidog/kilar && brew install kilar`
+- Formula更新スクリプト: `scripts/update-formula.sh`
 
 ### バイナリ配布
 - GitHub Releasesでクロスプラットフォームバイナリ提供
