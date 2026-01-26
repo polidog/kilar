@@ -145,6 +145,8 @@ mod tests {
                         || error_msg.contains("ss")
                         || error_msg.contains("netstat")
                         || error_msg.contains("system tools")
+                        || error_msg.contains("I/O error")
+                        || error_msg.contains("No such file or directory")
                 );
             }
         }

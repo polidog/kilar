@@ -394,3 +394,224 @@ impl Default for ProcfsPortManager {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_procfs_port_manager_creation() {
+        let manager = ProcfsPortManager::new();
+        assert!(manager.pid_cache.is_empty());
+        assert_eq!(manager.cache_ttl, std::time::Duration::from_secs(2));
+    }
+
+    #[test]
+    fn test_procfs_port_manager_default() {
+        let manager = ProcfsPortManager::default();
+        assert!(manager.pid_cache.is_empty());
+    }
+
+    #[test]
+    fn test_parse_ipv4_address_all_zeros() {
+        let manager = ProcfsPortManager::new();
+        let result = manager.parse_ipv4_address("00000000");
+        assert_eq!(result, "*");
+    }
+
+    #[test]
+    fn test_parse_ipv4_address_localhost() {
+        let manager = ProcfsPortManager::new();
+        // 127.0.0.1 in little-endian hex: 0100007F
+        let result = manager.parse_ipv4_address("0100007F");
+        assert_eq!(result, "127.0.0.1");
+    }
+
+    #[test]
+    fn test_parse_ipv4_address_invalid_length() {
+        let manager = ProcfsPortManager::new();
+        let result = manager.parse_ipv4_address("00");
+        assert_eq!(result, "*");
+    }
+
+    #[test]
+    fn test_parse_ipv6_address_all_zeros() {
+        let manager = ProcfsPortManager::new();
+        let result = manager.parse_ipv6_address("00000000000000000000000000000000");
+        assert_eq!(result, "*");
+    }
+
+    #[test]
+    fn test_parse_ipv6_address_invalid_length() {
+        let manager = ProcfsPortManager::new();
+        let result = manager.parse_ipv6_address("0000");
+        assert_eq!(result, "*");
+    }
+
+    #[test]
+    fn test_parse_ipv6_address_localhost() {
+        let manager = ProcfsPortManager::new();
+        // ::1 in hex: 00000000000000000000000000000001
+        let result = manager.parse_ipv6_address("00000000000000000000000000000001");
+        assert_eq!(result, "::1");
+    }
+
+    #[test]
+    fn test_parse_address_ipv4() {
+        let manager = ProcfsPortManager::new();
+        // Format: address:port in hex
+        // 0.0.0.0:8080 -> 00000000:1F90
+        let result = manager.parse_address("00000000:1F90", false);
+        assert!(result.is_some());
+        let (address, port) = result.unwrap();
+        assert_eq!(address, "*");
+        assert_eq!(port, 8080);
+    }
+
+    #[test]
+    fn test_parse_address_ipv4_localhost_port_3000() {
+        let manager = ProcfsPortManager::new();
+        // 127.0.0.1:3000 -> 0100007F:0BB8
+        let result = manager.parse_address("0100007F:0BB8", false);
+        assert!(result.is_some());
+        let (address, port) = result.unwrap();
+        assert_eq!(address, "127.0.0.1");
+        assert_eq!(port, 3000);
+    }
+
+    #[test]
+    fn test_parse_address_ipv6() {
+        let manager = ProcfsPortManager::new();
+        // [::]:8080 -> 00000000000000000000000000000000:1F90
+        let result = manager.parse_address("00000000000000000000000000000000:1F90", true);
+        assert!(result.is_some());
+        let (address, port) = result.unwrap();
+        assert_eq!(address, "*");
+        assert_eq!(port, 8080);
+    }
+
+    #[test]
+    fn test_parse_address_invalid() {
+        let manager = ProcfsPortManager::new();
+        // Missing colon
+        let result = manager.parse_address("00000000", false);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_parse_tcp_content_empty() {
+        let manager = ProcfsPortManager::new();
+        let content = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n";
+        let result = manager.parse_tcp_content(content, false);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_parse_tcp_content_listening() {
+        let manager = ProcfsPortManager::new();
+        let content = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n   0: 00000000:1F90 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 12345 1 0000000000000000 100 0 0 10 0";
+        let result = manager.parse_tcp_content(content, false);
+        assert!(result.is_ok());
+        let processes = result.unwrap();
+        assert_eq!(processes.len(), 1);
+        assert_eq!(processes[0].port, 8080);
+        assert_eq!(processes[0].protocol, "tcp");
+        assert_eq!(processes[0].address, "*");
+        assert_eq!(processes[0].inode, Some(12345));
+    }
+
+    #[test]
+    fn test_parse_tcp_content_established_skipped() {
+        let manager = ProcfsPortManager::new();
+        // State 01 = ESTABLISHED, should be skipped
+        let content = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n   0: 00000000:1F90 00000000:0000 01 00000000:00000000 00:00000000 00000000     0        0 12345 1 0000000000000000 100 0 0 10 0";
+        let result = manager.parse_tcp_content(content, false);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_parse_udp_content() {
+        let manager = ProcfsPortManager::new();
+        let content = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode ref pointer drops\n   0: 00000000:0035 00000000:0000 07 00000000:00000000 00:00000000 00000000     0        0 54321 2 0000000000000000 0";
+        let result = manager.parse_udp_content(content, false);
+        assert!(result.is_ok());
+        let processes = result.unwrap();
+        assert_eq!(processes.len(), 1);
+        assert_eq!(processes[0].port, 53); // DNS port
+        assert_eq!(processes[0].protocol, "udp");
+        assert_eq!(processes[0].inode, Some(54321));
+    }
+
+    #[test]
+    fn test_get_display_path_dev_process() {
+        let manager = ProcfsPortManager::new();
+        let process_info = ProcessInfo {
+            pid: 1234,
+            name: "node".to_string(),
+            command: "node /home/user/project/server.js".to_string(),
+            executable_path: "/usr/bin/node".to_string(),
+            working_directory: "/home/user/project".to_string(),
+            port: 3000,
+            protocol: "tcp".to_string(),
+            address: "*".to_string(),
+            inode: Some(12345),
+        };
+        let result = manager.get_display_path(&process_info);
+        assert_eq!(result, "/home/user/project");
+    }
+
+    #[test]
+    fn test_get_display_path_system_process() {
+        let manager = ProcfsPortManager::new();
+        let process_info = ProcessInfo {
+            pid: 1234,
+            name: "nginx".to_string(),
+            command: "nginx: master process".to_string(),
+            executable_path: "/usr/sbin/nginx".to_string(),
+            working_directory: "/".to_string(),
+            port: 80,
+            protocol: "tcp".to_string(),
+            address: "*".to_string(),
+            inode: Some(12345),
+        };
+        let result = manager.get_display_path(&process_info);
+        assert_eq!(result, "/usr/sbin/nginx");
+    }
+
+    #[test]
+    fn test_clear_cache() {
+        let mut manager = ProcfsPortManager::new();
+        manager.pid_cache.insert(
+            1234,
+            ProcessDetails {
+                name: "test".to_string(),
+                command: "test".to_string(),
+                executable_path: "/test".to_string(),
+                working_directory: "/".to_string(),
+            },
+        );
+        assert!(!manager.pid_cache.is_empty());
+
+        manager.clear_cache();
+        assert!(manager.pid_cache.is_empty());
+    }
+
+    #[test]
+    fn test_is_listening_connection() {
+        let manager = ProcfsPortManager::new();
+        let process_info = ProcessInfo {
+            pid: 1234,
+            name: "test".to_string(),
+            command: "test".to_string(),
+            executable_path: "/test".to_string(),
+            working_directory: "/".to_string(),
+            port: 3000,
+            protocol: "tcp".to_string(),
+            address: "*".to_string(),
+            inode: Some(12345),
+        };
+        assert!(manager.is_listening_connection(&process_info));
+    }
+}

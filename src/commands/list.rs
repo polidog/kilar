@@ -549,4 +549,99 @@ mod tests {
         let s = String::from("toolong");
         assert_eq!(s.truncate_with_ellipsis(5), "to...");
     }
+
+    #[test]
+    fn test_string_truncate_with_ellipsis_edge_cases() {
+        // Empty string
+        let s = String::from("");
+        assert_eq!(s.truncate_with_ellipsis(5), "");
+
+        // Very small max_len (less than ellipsis) - returns just "..."
+        let s = String::from("hello");
+        assert_eq!(s.truncate_with_ellipsis(3), "...");
+
+        // max_len of 2 still returns "..." due to saturating_sub
+        let s = String::from("hello");
+        assert_eq!(s.truncate_with_ellipsis(2), "...");
+
+        // Single character with adequate max_len
+        let s = String::from("a");
+        assert_eq!(s.truncate_with_ellipsis(5), "a");
+
+        // Exactly 3 characters (same as string length, no truncation)
+        let s = String::from("abc");
+        assert_eq!(s.truncate_with_ellipsis(3), "abc");
+
+        // max_len of 4 for 5 char string
+        let s = String::from("hello");
+        assert_eq!(s.truncate_with_ellipsis(4), "h...");
+    }
+
+    #[test]
+    fn test_list_options_creation() {
+        let options = ListOptions {
+            ports_range: Some("3000-4000".to_string()),
+            filter: Some("node".to_string()),
+            sort: "port".to_string(),
+            protocol: "tcp".to_string(),
+            kill: false,
+            quiet: false,
+            json: false,
+            watch: false,
+        };
+
+        assert_eq!(options.ports_range, Some("3000-4000".to_string()));
+        assert_eq!(options.filter, Some("node".to_string()));
+        assert_eq!(options.sort, "port");
+        assert_eq!(options.protocol, "tcp");
+        assert!(!options.kill);
+        assert!(!options.quiet);
+        assert!(!options.json);
+        assert!(!options.watch);
+    }
+
+    #[test]
+    fn test_list_options_debug() {
+        let options = ListOptions {
+            ports_range: None,
+            filter: None,
+            sort: "port".to_string(),
+            protocol: "all".to_string(),
+            kill: true,
+            quiet: true,
+            json: true,
+            watch: true,
+        };
+
+        // Test Debug trait
+        let debug_str = format!("{:?}", options);
+        assert!(debug_str.contains("ListOptions"));
+        assert!(debug_str.contains("ports_range"));
+        assert!(debug_str.contains("filter"));
+    }
+
+    #[test]
+    fn test_parse_port_range_boundary() {
+        // Minimum port
+        let result = ListCommand::parse_port_range("1-1");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), (1, 1));
+
+        // Maximum port
+        let result = ListCommand::parse_port_range("65535-65535");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), (65535, 65535));
+
+        // Full range
+        let result = ListCommand::parse_port_range("1-65535");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), (1, 65535));
+    }
+
+    #[test]
+    fn test_parse_port_range_overflow() {
+        // Port number overflow
+        let result = ListCommand::parse_port_range("0-70000");
+        assert!(result.is_err());
+    }
 }
