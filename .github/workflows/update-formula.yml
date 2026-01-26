@@ -36,28 +36,9 @@ jobs:
         run: sleep 60
 
       - name: Update formula
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
           ./scripts/update-formula.sh "${{ steps.version.outputs.VERSION }}"
-
-      - name: Create Pull Request
-        uses: peter-evans/create-pull-request@v5
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "chore: update Homebrew formula to ${{ steps.version.outputs.VERSION }}"
-          title: "Update Homebrew formula to ${{ steps.version.outputs.VERSION }}"
-          body: |
-            This PR updates the Homebrew formula to version ${{ steps.version.outputs.VERSION }}.
-            
-            ## Changes
-            - Updated version number
-            - Updated SHA256 checksums for all platforms
-            
-            ## Checklist
-            - [ ] SHA256 checksums verified
-            - [ ] Formula syntax validated
-            - [ ] Test installation locally
-          branch: update-formula-${{ steps.version.outputs.VERSION }}
-          delete-branch: true
-          labels: |
-            homebrew
-            automation
