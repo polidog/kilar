@@ -30,24 +30,31 @@ cd homebrew-kilar
 calculate_sha256() {
     local url=$1
     local filename=$(basename "$url")
-    
-    echo "Downloading $url..."
-    curl -L -o "$TEMP_DIR/$filename" "$url"
-    
-    if [ ! -f "$TEMP_DIR/$filename" ]; then
-        echo "Failed to download $url"
+
+    echo "Downloading $url..." >&2
+    local http_code
+    http_code=$(curl -L -w "%{http_code}" -o "$TEMP_DIR/$filename" "$url" 2>/dev/null)
+
+    if [ "$http_code" != "200" ]; then
+        echo "Failed to download $url (HTTP $http_code)" >&2
+        rm -f "$TEMP_DIR/$filename"
         return 1
     fi
-    
+
+    if [ ! -f "$TEMP_DIR/$filename" ] || [ ! -s "$TEMP_DIR/$filename" ]; then
+        echo "Failed to download $url" >&2
+        return 1
+    fi
+
     sha256sum "$TEMP_DIR/$filename" | cut -d' ' -f1
 }
 
 # URLs for different platforms
 BASE_URL="https://github.com/polidog/kilar/releases/download/v${VERSION}"
-MACOS_INTEL_URL="${BASE_URL}/kilar-${VERSION}-x86_64-apple-darwin.tar.gz"
-MACOS_ARM_URL="${BASE_URL}/kilar-${VERSION}-aarch64-apple-darwin.tar.gz"
-LINUX_X86_URL="${BASE_URL}/kilar-${VERSION}-x86_64-unknown-linux-gnu.tar.gz"
-LINUX_ARM_URL="${BASE_URL}/kilar-${VERSION}-aarch64-unknown-linux-gnu.tar.gz"
+MACOS_INTEL_URL="${BASE_URL}/kilar-v${VERSION}-x86_64-apple-darwin.tar.gz"
+MACOS_ARM_URL="${BASE_URL}/kilar-v${VERSION}-aarch64-apple-darwin.tar.gz"
+LINUX_X86_URL="${BASE_URL}/kilar-v${VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+LINUX_ARM_URL="${BASE_URL}/kilar-v${VERSION}-aarch64-unknown-linux-gnu.tar.gz"
 
 # Calculate SHA256 for each platform
 echo "Calculating SHA256 checksums..."
@@ -62,23 +69,28 @@ echo "Updating formula file..."
 # Update version
 sed -i.bak "s/version \".*\"/version \"${VERSION}\"/" "$FORMULA_PATH"
 
+# Helper function to validate SHA256 (64 hex characters)
+is_valid_sha256() {
+    [[ "$1" =~ ^[a-f0-9]{64}$ ]]
+}
+
 # Update SHA256 values
-if [ -n "$MACOS_INTEL_SHA256" ]; then
+if is_valid_sha256 "$MACOS_INTEL_SHA256"; then
     sed -i.bak "s|sha256 \"PLACEHOLDER_SHA256_MACOS_INTEL\"|sha256 \"${MACOS_INTEL_SHA256}\"|" "$FORMULA_PATH"
     sed -i.bak "s|sha256 \"[a-f0-9]*\" # x86_64-apple-darwin|sha256 \"${MACOS_INTEL_SHA256}\" # x86_64-apple-darwin|" "$FORMULA_PATH"
 fi
 
-if [ -n "$MACOS_ARM_SHA256" ]; then
+if is_valid_sha256 "$MACOS_ARM_SHA256"; then
     sed -i.bak "s|sha256 \"PLACEHOLDER_SHA256_MACOS_ARM\"|sha256 \"${MACOS_ARM_SHA256}\"|" "$FORMULA_PATH"
     sed -i.bak "s|sha256 \"[a-f0-9]*\" # aarch64-apple-darwin|sha256 \"${MACOS_ARM_SHA256}\" # aarch64-apple-darwin|" "$FORMULA_PATH"
 fi
 
-if [ -n "$LINUX_X86_SHA256" ]; then
+if is_valid_sha256 "$LINUX_X86_SHA256"; then
     sed -i.bak "s|sha256 \"PLACEHOLDER_SHA256_LINUX_X86_64\"|sha256 \"${LINUX_X86_SHA256}\"|" "$FORMULA_PATH"
     sed -i.bak "s|sha256 \"[a-f0-9]*\" # x86_64-unknown-linux-gnu|sha256 \"${LINUX_X86_SHA256}\" # x86_64-unknown-linux-gnu|" "$FORMULA_PATH"
 fi
 
-if [ -n "$LINUX_ARM_SHA256" ]; then
+if is_valid_sha256 "$LINUX_ARM_SHA256"; then
     sed -i.bak "s|sha256 \"PLACEHOLDER_SHA256_LINUX_ARM\"|sha256 \"${LINUX_ARM_SHA256}\"|" "$FORMULA_PATH"
     sed -i.bak "s|sha256 \"[a-f0-9]*\" # aarch64-unknown-linux-gnu|sha256 \"${LINUX_ARM_SHA256}\" # aarch64-unknown-linux-gnu|" "$FORMULA_PATH"
 fi
